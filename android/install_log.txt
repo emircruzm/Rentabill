@@ -1,0 +1,2 @@
+Performing Streamed Install
+adb.exe: failed to install app\build\outputs\apk\debug\app-debug.apk: 

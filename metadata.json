@@ -1,0 +1,6 @@
+{
+  "name": "Rentabill",
+  "description": "App para dueños de tiendas y changarros para controlar ventas, dinero invertido y productos sin términos difíciles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
