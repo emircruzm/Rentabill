@@ -16,9 +16,6 @@ import {
   Lock, 
   LogOut, 
   ShieldCheck, 
-  Moon, 
-  Globe, 
-  Crown,
   Bell,
   Camera,
   Phone,
@@ -41,7 +38,7 @@ import { useInventory } from '../context/InventoryContext';
 import { UserRole, StoreConfig, TeamInvitation, TeamMember } from '../types';
 import { formatPeruPhoneDisplay } from '../utils/formatters';
 
-type SectionKey = 'negocio' | 'cuenta' | 'equipo' | 'metas' | 'datos' | 'ayuda' | 'otros';
+type SectionKey = 'negocio' | 'cuenta' | 'equipo' | 'metas' | 'datos' | 'ayuda';
 
 export const AjustesView: React.FC = () => {
   const { 
@@ -233,7 +230,6 @@ export const AjustesView: React.FC = () => {
     { id: 'metas', label: 'Metas y avisos', icon: <Target className="w-4 h-4" />, desc: 'Objetivo de ganancia y alertas' },
     { id: 'datos', label: 'Mis datos', icon: <Database className="w-4 h-4" />, desc: 'Descargar ventas y reportes' },
     { id: 'ayuda', label: 'Ayuda y guía', icon: <HelpCircle className="w-4 h-4" />, desc: 'Cómo usar la app y soporte' },
-    { id: 'otros', label: 'Otros ajustes', icon: <Sparkles className="w-4 h-4" />, desc: 'Modo oscuro e idioma' },
   ];
 
   return (
@@ -1356,64 +1352,6 @@ export const AjustesView: React.FC = () => {
               >
                 <span>Enviar mensaje por WhatsApp</span>
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 7. SECCIÓN: OTROS */}
-      {activeSection === 'otros' && (
-        <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-xs space-y-4 animate-in fade-in">
-          <div className="border-b border-slate-100 pb-3">
-            <h3 className="text-sm font-bold text-slate-900">Otros ajustes</h3>
-            <p className="text-xs text-slate-500">Personaliza la apariencia y consulta tu plan</p>
-          </div>
-
-          <div className="space-y-3">
-            {/* Modo oscuro */}
-            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Moon className="w-4 h-4 text-slate-600" />
-                <div>
-                  <span className="text-xs font-bold text-slate-900 block">Modo noche / descanso</span>
-                  <span className="text-[11px] text-slate-500">Colores suaves para cobrar de noche</span>
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.darkMode}
-                onChange={e => {
-                  updateSettings({ darkMode: e.target.checked });
-                  showToast(e.target.checked ? 'Modo noche activado' : 'Modo día activado', 'info');
-                }}
-                className="w-4 h-4 rounded text-emerald-800 focus:ring-emerald-700"
-              />
-            </div>
-
-            {/* Idioma */}
-            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Globe className="w-4 h-4 text-slate-600" />
-                <div>
-                  <span className="text-xs font-bold text-slate-900 block">Idioma</span>
-                  <span className="text-[11px] text-slate-500">Palabras sencillas y directas</span>
-                </div>
-              </div>
-              <span className="text-xs font-bold text-slate-800">Español</span>
-            </div>
-
-            {/* Ver mi plan */}
-            <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Crown className="w-4 h-4 text-amber-700" />
-                <div>
-                  <span className="text-xs font-black text-amber-950 block">Plan Changarro Ilimitado</span>
-                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded-sm inline-block mt-0.5">
-                    GRATIS PARA SIEMPRE
-                  </span>
-                </div>
-              </div>
-              <span className="text-[11px] font-bold text-slate-500">v2.4</span>
             </div>
           </div>
         </div>
