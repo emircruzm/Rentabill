@@ -19,11 +19,11 @@ export const PulsoView: React.FC = () => {
   const { metrics, products, sales, setActiveTab, showToast } = useInventory();
 
   // Calculate SVG arc for gauge
-  const radius = 70;
-  const strokeWidth = 14;
+  const radius = 78;
+  const strokeWidth = 16;
   const circumference = 2 * Math.PI * radius;
   // Use a 270 degree arc or full circle
-  const scoreRatio = metrics.totalScore / 100;
+  const scoreRatio = Math.min(1, Math.max(0, metrics.totalScore / 100));
   const strokeDashoffset = circumference - (scoreRatio * circumference);
 
   const getStatusBadge = () => {
@@ -62,23 +62,23 @@ export const PulsoView: React.FC = () => {
           </span>
         </div>
 
-        {/* Gauge Widget */}
-        <div className="flex flex-col items-center justify-center my-4 relative">
-          <div className="relative w-48 h-48 flex items-center justify-center">
-            <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 180 180">
+        {/* Gauge Widget (Diseño mejorado con mayor espacio interno y jerarquía clara) */}
+        <div className="flex flex-col items-center justify-center my-6 py-1 relative">
+          <div className="relative w-56 h-56 flex items-center justify-center">
+            <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 200 200">
               {/* Background circle */}
               <circle
-                cx="90"
-                cy="90"
+                cx="100"
+                cy="100"
                 r={radius}
-                stroke="#E2E8F0"
+                stroke="#F1F5F9"
                 strokeWidth={strokeWidth}
                 fill="transparent"
               />
-              {/* Progress arc */}
+              {/* Progress arc (anillo más grueso con color según nivel) */}
               <circle
-                cx="90"
-                cy="90"
+                cx="100"
+                cy="100"
                 r={radius}
                 stroke={metrics.scoreColor}
                 strokeWidth={strokeWidth}
@@ -90,36 +90,46 @@ export const PulsoView: React.FC = () => {
                 className={`transition-all duration-700 ease-out ${
                   !metrics.isCalibratedMode ? 'stroke-dasharray-4' : ''
                 }`}
-                style={!metrics.isCalibratedMode ? { strokeDasharray: '6 4' } : undefined}
+                style={!metrics.isCalibratedMode ? { strokeDasharray: '8 5' } : undefined}
               />
             </svg>
 
-            {/* Score Center Label */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-              <div className="flex items-baseline">
-                <span className="text-4xl font-black tracking-tight text-slate-900">
+            {/* Score Center Label con jerarquía clara y espaciado */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+              <div className="flex items-baseline justify-center">
+                <span className="text-5xl font-black tracking-tight text-slate-900 leading-none">
                   {metrics.totalScore}
                 </span>
-                <span className="text-sm font-semibold text-slate-400">/100</span>
+                <span className="text-base font-bold text-slate-400 ml-1">/100</span>
               </div>
-              <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase mt-0.5">
+
+              {/* Etiqueta de estado destacada debajo del puntaje */}
+              <div className="mt-2.5">
+                <span className={`inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border shadow-2xs ${statusBadge.bg}`}>
+                  <ShieldCheck className="w-3 h-3" />
+                  {statusBadge.label}
+                </span>
+              </div>
+
+              <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase mt-1.5">
                 {metrics.isCalibratedMode ? 'Salud Real' : 'Salud Proyectada'}
               </span>
+
               {sales.length > 0 ? (
-                <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-[11px] font-bold text-emerald-700">
+                <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-[11px] font-bold text-emerald-700">
                   <ArrowUpRight className="w-3 h-3" />
                   <span>{sales.length} {sales.length === 1 ? 'venta' : 'ventas'}</span>
                 </div>
               ) : (
-                <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-[11px] font-medium text-slate-500">
+                <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500">
                   <span>Sin ventas aún</span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Seed vs Calibrated Data Indicator */}
-          <div className="mt-1 flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-100 text-xs text-slate-600">
+          {/* Seed vs Calibrated Data Indicator con separación visual */}
+          <div className="mt-4 flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-100 text-xs text-slate-600">
             <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
             <span className="font-semibold text-slate-800">{metrics.realCapitalPercent}% datos reales</span>
             <span className="text-slate-300">•</span>
