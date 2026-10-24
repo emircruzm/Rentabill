@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
 import { SaleRecord, InventoryMovement, PastSimulation, MovementType, PurchaseRecord, PurchaseItem } from '../types';
+import { formatCurrency } from '../utils/formatters';
 
 export const HistorialView: React.FC = () => {
   const { 
@@ -189,54 +190,58 @@ export const HistorialView: React.FC = () => {
         </div>
       </div>
 
-      {/* 3-Section Segmented Controls */}
-      <div className="bg-slate-200/80 p-1 rounded-2xl flex items-center gap-1 shadow-inner">
+      {/* Segmented Controls con separación y altura táctil cómoda (mínimo 44px) */}
+      <div className="bg-slate-200/80 p-1.5 rounded-2xl flex items-center gap-1.5 shadow-inner">
         <button
+          type="button"
           onClick={() => setActiveSection('ventas')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-h-[44px] px-1.5 py-2 text-[11px] sm:text-xs font-bold rounded-xl transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 active:scale-95 ${
             activeSection === 'ventas'
-              ? 'bg-white text-emerald-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
           }`}
         >
-          <ShoppingBag className="w-3.5 h-3.5" />
-          <span>Ventas</span>
+          <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate leading-tight">Ventas</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveSection('movimientos')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-h-[44px] px-1.5 py-2 text-[11px] sm:text-xs font-bold rounded-xl transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 active:scale-95 ${
             activeSection === 'movimientos'
-              ? 'bg-white text-emerald-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
           }`}
         >
-          <ArrowUpDown className="w-3.5 h-3.5" />
-          <span>Movimientos</span>
+          <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate leading-tight">Movimientos</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveSection('simulaciones')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-h-[44px] px-1.5 py-2 text-[11px] sm:text-xs font-bold rounded-xl transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 active:scale-95 ${
             activeSection === 'simulaciones'
-              ? 'bg-white text-emerald-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
           }`}
         >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Simulaciones</span>
+          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate leading-tight">Simulaciones</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveSection('compras')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-h-[44px] px-1.5 py-2 text-[11px] sm:text-xs font-bold rounded-xl transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 active:scale-95 ${
             activeSection === 'compras'
-              ? 'bg-white text-emerald-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
           }`}
         >
-          <Receipt className="w-3.5 h-3.5" />
-          <span>Compras</span>
+          <Receipt className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate leading-tight">Compras</span>
         </button>
       </div>
 
@@ -250,7 +255,7 @@ export const HistorialView: React.FC = () => {
             <div className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-xs">
               <span className="text-[11px] font-semibold text-slate-500 block">Total Vendido</span>
               <div className="text-lg font-black text-slate-900 font-mono mt-0.5">
-                ${salesTotals.totalAmount.toFixed(2)}
+                {formatCurrency(salesTotals.totalAmount)}
               </div>
               <span className="text-[10px] text-slate-400 mt-1 block">
                 {salesTotals.count} {salesTotals.count === 1 ? 'ticket' : 'tickets'} registrados
@@ -260,7 +265,7 @@ export const HistorialView: React.FC = () => {
             <div className="bg-emerald-50/70 p-3.5 rounded-2xl border border-emerald-100 shadow-xs">
               <span className="text-[11px] font-semibold text-emerald-800 block">Ganancia Neta Real</span>
               <div className="text-lg font-black text-emerald-700 font-mono mt-0.5">
-                +${salesTotals.totalProfit.toFixed(2)}
+                +{formatCurrency(salesTotals.totalProfit)}
               </div>
               <span className="text-[10px] font-bold text-emerald-800 mt-1 block">
                 Margen promedio {salesTotals.marginPercent.toFixed(1)}%
@@ -367,16 +372,16 @@ export const HistorialView: React.FC = () => {
                   {/* Bottom row: Total and Profit */}
                   <div className="flex items-center justify-between pt-1 border-t border-slate-50">
                     <div className="text-xs text-slate-500">
-                      Total venta:{' '}
+                       Total venta:{' '}
                       <span className="font-mono font-black text-slate-900">
-                        ${sale.totalAmount.toFixed(2)}
+                        {formatCurrency(sale.totalAmount)}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-1 text-xs">
                       <span className="text-[10px] text-slate-400 font-medium">Ganancia:</span>
                       <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg">
-                        +${sale.totalProfit.toFixed(2)}
+                        +{formatCurrency(sale.totalProfit)}
                       </span>
                       <ChevronRight className="w-3.5 h-3.5 text-slate-400 ml-0.5" />
                     </div>
@@ -609,7 +614,7 @@ export const HistorialView: React.FC = () => {
                         Simulaste {sim.simulatedQuantity} unids de {sim.productName}
                       </h3>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        Inversión requerida: <strong className="text-slate-800 font-mono font-bold">${sim.totalCost.toFixed(2)}</strong> (${sim.unitCost.toFixed(2)} c/u)
+                        Inversión requerida: <strong className="text-slate-800 font-mono font-bold">{formatCurrency(sim.totalCost)}</strong> ({formatCurrency(sim.unitCost)} c/u)
                       </p>
                       {sim.supplierName && (
                         <p className="text-[10px] text-slate-600 mt-0.5 flex items-center gap-1">
@@ -631,7 +636,7 @@ export const HistorialView: React.FC = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-slate-500">Ganarías al día:</span>
                           <strong className="text-emerald-700 font-mono font-bold">
-                            +${sim.projectedDailyProfitGain.toFixed(2)}/día
+                            +{formatCurrency(sim.projectedDailyProfitGain)}/día
                           </strong>
                         </div>
                         <div className="flex items-center justify-between">
@@ -665,7 +670,7 @@ export const HistorialView: React.FC = () => {
                           <div className="flex items-center justify-between">
                             <span className="text-slate-600">Ganancia real:</span>
                             <strong className="text-emerald-700 font-mono font-bold">
-                              +${(sim.actualDailyProfitGain || sim.projectedDailyProfitGain).toFixed(2)}/día
+                              +{formatCurrency(sim.actualDailyProfitGain || sim.projectedDailyProfitGain)}/día
                             </strong>
                           </div>
                           <div className="flex items-center justify-between">
@@ -716,7 +721,7 @@ export const HistorialView: React.FC = () => {
             <div className="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-xs">
               <span className="text-[11px] font-semibold text-slate-500 block">Total Compras</span>
               <div className="text-lg font-black text-slate-900 font-mono mt-0.5">
-                ${purchases.reduce((acc: number, p: PurchaseRecord) => acc + (p.totalAmount || p.totalCost), 0).toFixed(2)}
+                {formatCurrency(purchases.reduce((acc: number, p: PurchaseRecord) => acc + (p.totalAmount || p.totalCost), 0))}
               </div>
               <span className="text-[10px] text-slate-400 mt-1 block">
                 {purchases.length} {purchases.length === 1 ? 'compra registrada' : 'compras registradas'}
@@ -726,7 +731,7 @@ export const HistorialView: React.FC = () => {
             <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-100 shadow-xs">
               <span className="text-[11px] font-semibold text-amber-800 block">Por Pagar a Crédito</span>
               <div className="text-lg font-black text-amber-700 font-mono mt-0.5">
-                ${purchases.filter((p: PurchaseRecord) => p.paymentCondition === 'credito' && !p.paidAt).reduce((acc: number, p: PurchaseRecord) => acc + (p.totalAmount || p.totalCost), 0).toFixed(2)}
+                {formatCurrency(purchases.filter((p: PurchaseRecord) => p.paymentCondition === 'credito' && !p.paidAt).reduce((acc: number, p: PurchaseRecord) => acc + (p.totalAmount || p.totalCost), 0))}
               </div>
               <span className="text-[10px] font-bold text-amber-800 mt-1 block">
                 {purchases.filter((p: PurchaseRecord) => p.paymentCondition === 'credito' && !p.paidAt).length} facturas pendientes
@@ -775,7 +780,7 @@ export const HistorialView: React.FC = () => {
                     {/* Items */}
                     <div className="text-xs text-slate-600">
                       <p className="truncate font-medium">
-                        {purchase.items.map((it: PurchaseItem) => `${it.quantity}x ${it.productName} ($${it.unitCost.toFixed(2)})`).join(' • ')}
+                        {purchase.items.map((it: PurchaseItem) => `${it.quantity}x ${it.productName} (${formatCurrency(it.unitCost)})`).join(' • ')}
                       </p>
                       {purchase.notes && (
                         <p className="text-[11px] text-slate-400 italic mt-0.5">"{purchase.notes}"</p>
@@ -801,7 +806,7 @@ export const HistorialView: React.FC = () => {
                         <div className="text-right">
                           <span className="text-[10px] text-slate-400 block">Total</span>
                           <span className="font-mono font-black text-slate-900">
-                            ${purchase.totalAmount.toFixed(2)}
+                            {formatCurrency(purchase.totalAmount)}
                           </span>
                         </div>
 
@@ -871,15 +876,15 @@ export const HistorialView: React.FC = () => {
                         {item.quantity}x {item.productName}
                       </div>
                       <div className="text-[10px] text-slate-400 mt-0.5">
-                        Precio: ${item.unitPrice.toFixed(2)} • Costo: ${item.unitCost.toFixed(2)}
+                        Precio: {formatCurrency(item.unitPrice)} • Costo: {formatCurrency(item.unitCost)}
                       </div>
                     </div>
                     <div className="text-right shrink-0">
                       <div className="font-mono font-bold text-slate-900">
-                        ${item.subtotal.toFixed(2)}
+                        {formatCurrency(item.subtotal)}
                       </div>
                       <div className="text-[10px] font-bold font-mono text-emerald-700">
-                        +${item.profit.toFixed(2)} ganancia
+                        +{formatCurrency(item.profit)} ganancia
                       </div>
                     </div>
                   </div>
@@ -892,11 +897,11 @@ export const HistorialView: React.FC = () => {
               <div className="bg-slate-50 p-3 rounded-2xl text-xs space-y-1">
                 <div className="flex justify-between text-slate-600">
                   <span>Efectivo entregado por cliente:</span>
-                  <span className="font-mono font-bold">${selectedSaleDetail.cashGiven.toFixed(2)}</span>
+                  <span className="font-mono font-bold">{formatCurrency(selectedSaleDetail.cashGiven)}</span>
                 </div>
                 <div className="flex justify-between text-slate-600">
                   <span>Cambio devuelto:</span>
-                  <span className="font-mono font-bold text-emerald-700">${selectedSaleDetail.changeGiven.toFixed(2)}</span>
+                  <span className="font-mono font-bold text-emerald-700">{formatCurrency(selectedSaleDetail.changeGiven)}</span>
                 </div>
               </div>
             )}
@@ -906,13 +911,13 @@ export const HistorialView: React.FC = () => {
               <div className="flex items-center justify-between text-sm">
                 <span className="text-emerald-900 font-bold">Total cobrado:</span>
                 <span className="font-mono font-black text-slate-900 text-base">
-                  ${selectedSaleDetail.totalAmount.toFixed(2)}
+                  {formatCurrency(selectedSaleDetail.totalAmount)}
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs pt-1 border-t border-emerald-200/60">
                 <span className="text-emerald-800 font-semibold">Ganancia neta total:</span>
                 <span className="font-mono font-black text-emerald-700 text-sm">
-                  +${selectedSaleDetail.totalProfit.toFixed(2)}
+                  +{formatCurrency(selectedSaleDetail.totalProfit)}
                 </span>
               </div>
             </div>

@@ -29,6 +29,8 @@ import {
 import { formatDatePeru, formatCurrency } from '../utils/formatters';
 import { supabase } from '../lib/supabase';
 import { formatAuthError } from '../lib/authHelpers';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
 export interface ToastInfo {
   id: number;
@@ -123,7 +125,7 @@ interface InventoryContextType {
   exitRoleTest: () => void;
   updateSettings: (newSettings: Partial<AppSettings>) => Promise<void>;
   switchActiveRegister: (register: string) => Promise<void>;
-  downloadSalesExcel: () => void;
+  downloadSalesExcel: () => Promise<void> | void;
   // Team Invitations & User ID Module
   invitations: TeamInvitation[];
   sendInvitation: (userId: string, role: UserRole) => Promise<{ success: boolean; error?: string }>;
@@ -557,7 +559,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .eq('store_id', storeId)
         .maybeSingle();
       
-      let userPref = { darkMode: false, language: 'Español (Sencillo)', dailyReminder: true };
+      let userPref = { darkMode: false, language: 'Español (Sencillo)', dailyReminder: false };
       try {
         const { data: { user: currentUser } } = await supabase.auth.getUser();
         if (currentUser) {
@@ -570,7 +572,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             userPref = {
               darkMode: Boolean(prefData.dark_mode),
               language: prefData.language || 'Español (Sencillo)',
-              dailyReminder: Boolean(prefData.daily_reminder ?? true),
+              dailyReminder: false,
             };
           }
         }
@@ -2326,12 +2328,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }
 
-      // Desacoplar user_preferences (por usuario): dark_mode, language, daily_reminder
-      if (user.id && (newSettings.darkMode !== undefined || newSettings.language !== undefined || newSettings.dailyReminder !== undefined)) {
+      // Desacoplar user_preferences (por usuario): dark_mode, language
+      if (user.id && (newSettings.darkMode !== undefined || newSettings.language !== undefined)) {
         const prefUpdates: any = { user_id: user.id };
         if (newSettings.darkMode !== undefined) prefUpdates.dark_mode = newSettings.darkMode;
         if (newSettings.language !== undefined) prefUpdates.language = newSettings.language;
-        if (newSettings.dailyReminder !== undefined) prefUpdates.daily_reminder = newSettings.dailyReminder;
         await supabase.from('user_preferences').upsert(prefUpdates);
       }
 
@@ -2350,32 +2351,88 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [showToast]);
 
-  const downloadSalesExcel = useCallback(() => {
-    const headers = ['Producto', 'Codigo', 'Precio Compra', 'Precio Venta', 'Ganancia por Unidad', 'Stock Actual', 'Unidades Vendidas', 'Conteo Tickets', 'Dato Confirmado'];
-    const rows = products.map(p => [
-      `"${p.name.replace(/"/g, '""')}"`,
-      p.barcode,
-      p.costPrice.toFixed(2),
-      p.salePrice.toFixed(2),
-      (p.salePrice - p.costPrice).toFixed(2),
-      p.stock,
-      p.unitsSold,
-      p.salesCount,
-      p.status === 'REAL' ? 'Real (Confirmado)' : 'Estimado'
-    ]);
+  const downloadSalesExcel = useCallback(async () => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const fileName = `productos_${todayStr}.csv`;
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' 
-      + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const headers = [
+      'Producto',
+      'Código de Barras',
+      'Categoría',
+      'Precio Compra (S/)',
+      'Precio Venta (S/)',
+      'Ganancia por Unidad (S/)',
+      'Margen (%)',
+      'Stock Actual',
+      'Unidades Vendidas',
+      'Conteo Tickets',
+      'Estado Dato'
+    ];
 
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Ventas_Rentabill_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const rows = products.map(p => {
+      const margin = p.salePrice - p.costPrice;
+      const marginPct = p.costPrice > 0 ? ((margin / p.costPrice) * 100).toFixed(1) : '0.0';
+      return [
+        `"${(p.name || '').replace(/"/g, '""')}"`,
+        `"${(p.barcode || '').replace(/"/g, '""')}"`,
+        `"${(p.categoryName || p.category || 'General').replace(/"/g, '""')}"`,
+        p.costPrice.toFixed(2),
+        p.salePrice.toFixed(2),
+        margin.toFixed(2),
+        `"${marginPct}%"`,
+        p.stock,
+        p.unitsSold,
+        p.salesCount,
+        p.status === 'REAL' ? 'Real (Confirmado)' : 'Estimado'
+      ];
+    });
 
-    showToast('Descarga iniciada', 'success', 'Archivo CSV compatible con Excel generado con éxito.');
+    const csvBody = [headers.join(','), ...rows.map(e => e.join(','))].join('\r\n');
+    const fullCsv = '\uFEFF' + csvBody;
+
+    // Camino 1: Si corre nativamente en dispositivo Android (APK)
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const relativePath = `Rentabill/${fileName}`;
+        await Filesystem.writeFile({
+          path: relativePath,
+          data: fullCsv,
+          directory: Directory.Documents,
+          encoding: Encoding.UTF8,
+          recursive: true,
+        });
+
+        showToast(
+          'Reporte guardado con éxito',
+          'success',
+          `Reporte guardado en Documentos/Rentabill/${fileName}`
+        );
+        return;
+      } catch (nativeErr: any) {
+        console.error('Error guardando reporte con Filesystem en Android:', nativeErr);
+      }
+    }
+
+    // Camino 2: Navegador Web / PWA
+    try {
+      const blob = new Blob([fullCsv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      showToast(
+        'Descarga completada',
+        'success',
+        `Archivo ${fileName} descargado con éxito.`
+      );
+    } catch (err: any) {
+      showToast('Error al descargar reporte', 'alert', err.message);
+    }
   }, [products, showToast]);
 
   const copyUserId = useCallback((idToCopy?: string) => {
