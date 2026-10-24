@@ -22,8 +22,8 @@ export const PulsoView: React.FC = () => {
   const hasStoreData = products.length > 0;
 
   // Calculate SVG arc for gauge
-  const radius = 78;
-  const strokeWidth = 16;
+  const radius = 80;
+  const strokeWidth = 11;
   const circumference = 2 * Math.PI * radius;
   // Use a 270 degree arc or full circle
   const scoreRatio = hasStoreData ? Math.min(1, Math.max(0, metrics.totalScore / 100)) : 0;
@@ -68,9 +68,9 @@ export const PulsoView: React.FC = () => {
           </span>
         </div>
 
-        {/* Gauge Widget (Diseño mejorado con mayor espacio interno y jerarquía clara) */}
-        <div className="flex flex-col items-center justify-center my-6 py-1 relative">
-          <div className="relative w-56 h-56 flex items-center justify-center">
+        {/* Gauge Widget (Diseño limpio: solo puntaje dentro del círculo, aro fino y elegante) */}
+        <div className="flex flex-col items-center justify-center my-5 py-1">
+          <div className="relative w-44 h-44 sm:w-48 sm:h-48 flex items-center justify-center">
             <svg className="w-full h-full -rotate-90 transform" viewBox="0 0 200 200">
               {/* Background circle */}
               <circle
@@ -81,7 +81,7 @@ export const PulsoView: React.FC = () => {
                 strokeWidth={strokeWidth}
                 fill="transparent"
               />
-              {/* Progress arc (anillo más grueso con color según nivel) */}
+              {/* Progress arc */}
               <circle
                 cx="100"
                 cy="100"
@@ -100,99 +100,96 @@ export const PulsoView: React.FC = () => {
               />
             </svg>
 
-            {/* Score Center Label con jerarquía clara y espaciado */}
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+            {/* Score Center Label: SOLO el número y /100 centrado, con amplio margen respecto al aro */}
+            <div className="absolute inset-0 flex items-center justify-center text-center px-4">
               {!hasStoreData ? (
-                <div className="flex flex-col items-center justify-center">
-                  <span className="text-4xl font-black text-slate-400 font-mono tracking-tight leading-none">—</span>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mt-2">Sin datos aún</span>
-                </div>
+                <span className="text-4xl sm:text-5xl font-black text-slate-400 font-mono tracking-tight leading-none select-none">
+                  —
+                </span>
               ) : (
-                <>
-                  <div className="flex items-baseline justify-center">
-                    <span className="text-5xl font-black tracking-tight text-slate-900 leading-none">
-                      {metrics.totalScore}
-                    </span>
-                    <span className="text-base font-bold text-slate-400 ml-1">/100</span>
-                  </div>
-
-                  {/* Etiqueta de estado destacada debajo del puntaje */}
-                  <div className="mt-2.5">
-                    <span className={`inline-flex items-center gap-1 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border shadow-2xs ${statusBadge.bg}`}>
-                      <ShieldCheck className="w-3 h-3" />
-                      {statusBadge.label}
-                    </span>
-                  </div>
-
-                  <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase mt-1.5">
-                    {metrics.isCalibratedMode ? 'Salud Real' : 'Salud Proyectada'}
+                <div className="flex items-baseline justify-center select-none">
+                  <span className="text-4xl sm:text-5xl font-black tracking-tight text-slate-900 leading-none">
+                    {metrics.totalScore}
                   </span>
-
-                  {sales.length > 0 ? (
-                    <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-[11px] font-bold text-emerald-700">
-                      <ArrowUpRight className="w-3 h-3" />
-                      <span>{sales.length} {sales.length === 1 ? 'venta' : 'ventas'}</span>
-                    </div>
-                  ) : (
-                    <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500">
-                      <span>Sin ventas aún</span>
-                    </div>
-                  )}
-                </>
+                  <span className="text-xs sm:text-sm font-bold text-slate-400 ml-1">/100</span>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Seed vs Calibrated Data Indicator con separación visual */}
-          <div className="mt-4 flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-100 text-xs text-slate-600">
-            <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-            <span className="font-semibold text-slate-800">{metrics.realCapitalPercent}% datos reales</span>
-            <span className="text-slate-300">•</span>
-            <span className="text-slate-500">{metrics.estimatedCapitalPercent}% estimados</span>
-            <button 
-              onClick={() => showToast(
-                metrics.isCalibratedMode 
-                  ? "Modo Calibrado activo: más del 50% de tu dinero invertido opera con ventas confirmadas en mostrador."
-                  : "Modo Semilla activo: realiza ventas en caja para confirmar automáticamente qué tan rápido se venden tus productos.", 
-                "info"
-              )}
-              title="Información de calibración"
-              className="ml-1 text-slate-400 hover:text-slate-600"
-            >
-              <HelpCircle className="w-3.5 h-3.5" />
-            </button>
+          {/* Subtítulo y píldora de ventas FUERA y DEBAJO del círculo */}
+          <div className="mt-3.5 flex flex-col items-center text-center">
+            <span className="text-[11px] font-bold tracking-wider text-slate-400 uppercase">
+              {metrics.isCalibratedMode ? 'Salud Real' : 'Salud Proyectada'}
+            </span>
+            {!hasStoreData ? (
+              <div className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500">
+                <span>Sin datos aún</span>
+              </div>
+            ) : sales.length > 0 ? (
+              <div className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-50 text-[11px] font-bold text-emerald-700">
+                <ArrowUpRight className="w-3 h-3" />
+                <span>{sales.length} {sales.length === 1 ? 'venta' : 'ventas'}</span>
+              </div>
+            ) : (
+              <div className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500">
+                <span>Sin ventas aún</span>
+              </div>
+            )}
+          </div>
+
+          {/* Seed vs Calibrated Data Indicator con separación consistente */}
+          <div className="mt-4 flex items-center justify-center">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200/70 text-xs text-slate-600 shadow-2xs">
+              <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0" />
+              <span className="font-semibold text-slate-800">{metrics.realCapitalPercent}% datos reales</span>
+              <span className="text-slate-300">•</span>
+              <span className="text-slate-500">{metrics.estimatedCapitalPercent}% estimados</span>
+              <button 
+                onClick={() => showToast(
+                  metrics.isCalibratedMode 
+                    ? "Modo Calibrado activo: más del 50% de tu dinero invertido opera con ventas confirmadas en mostrador."
+                    : "Modo Semilla activo: realiza ventas en caja para confirmar automáticamente qué tan rápido se venden tus productos.", 
+                  "info"
+                )}
+                title="Información de calibración"
+                className="ml-1 text-slate-400 hover:text-slate-600"
+              >
+                <HelpCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Separated Global Financial Metrics Cards: Dinero Invertido vs Dinero Parado (B4) */}
-        <div className="space-y-2.5 mt-4">
-          <div className="grid grid-cols-2 gap-3">
-            {/* Métrica 1: Dinero Invertido (B4: h-24, p-3.5, solo título, badge Total, monto S/, sin texto descriptivo) */}
-            <div className="h-24 p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between">
+        {/* Separated Global Financial Metrics Cards: Dinero Invertido vs Dinero Parado */}
+        <div className="space-y-3 mt-4 pt-1">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            {/* Métrica 1: Dinero Invertido */}
+            <div className="min-h-[100px] h-full p-3 sm:p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700">Dinero Invertido</span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-200/70 text-slate-700">
                   Total
                 </span>
               </div>
-              <div className="text-lg font-black text-slate-900 tracking-tight font-mono truncate">
+              <div className="text-base sm:text-lg font-black text-slate-900 tracking-tight font-mono break-words leading-tight mt-1">
                 {formatCurrency(metrics.totalInvestedCapital)}
               </div>
             </div>
 
-            {/* Métrica 2: Dinero Parado (B4: h-24, p-3.5, solo título, badge Sin vender, monto S/ y %, sin texto descriptivo) */}
-            <div className="h-24 p-3.5 rounded-2xl bg-rose-50/70 border border-rose-200/80 flex flex-col justify-between">
+            {/* Métrica 2: Dinero Parado */}
+            <div className="min-h-[100px] h-full p-3 sm:p-3.5 rounded-2xl bg-rose-50/70 border border-rose-200/80 flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-rose-900">Dinero Parado</span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-rose-200/80 text-rose-800">
                   Sin vender
                 </span>
               </div>
-              <div className="flex items-baseline gap-1.5 flex-wrap truncate">
-                <span className="text-lg font-black text-rose-700 tracking-tight font-mono">
+              <div className="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-1.5 leading-tight mt-1">
+                <span className="text-base sm:text-lg font-black text-rose-700 tracking-tight font-mono break-words">
                   {formatCurrency(metrics.totalTrappedCapital)}
                 </span>
-                <span className="text-xs font-bold text-rose-600/90 font-mono">
+                <span className="text-[11px] sm:text-xs font-bold text-rose-600/90 font-mono">
                   ({metrics.capitalLockedInSlowPercent.toFixed(1)}%)
                 </span>
               </div>
@@ -200,9 +197,9 @@ export const PulsoView: React.FC = () => {
           </div>
 
           {/* Métrica Complementaria: Rendimiento Diario */}
-          <div className="p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200/70 flex items-center justify-between">
+          <div className="p-3 sm:p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/70 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xs">
+              <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
                 %
               </div>
               <div>
