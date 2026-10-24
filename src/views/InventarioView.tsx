@@ -12,7 +12,6 @@ import {
   Percent, 
   Flame, 
   Boxes, 
-  ChevronDown, 
   PackageCheck,
   Pencil
 } from 'lucide-react';
@@ -95,11 +94,6 @@ export const InventarioView: React.FC = () => {
   } = useInventory();
 
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-
-  // Current active sort option
-  const activeSortOption = useMemo(() => {
-    return SORT_OPTIONS.find(opt => opt.id === currentSort) || SORT_OPTIONS[0];
-  }, [currentSort]);
 
   // Filter & Search Logic
   const filteredProducts = useMemo(() => {
@@ -268,39 +262,12 @@ export const InventarioView: React.FC = () => {
         </div>
 
         {/* Sorting header & Quick selector */}
-        <div className="flex items-center justify-between text-xs px-1 pt-0.5">
+        {/* Sorting header */}
+        <div className="flex items-center text-xs px-1 pt-0.5">
           <span className="text-slate-500 font-medium flex items-center gap-1.5">
             <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
             <span>Ordenar por:</span>
           </span>
-
-          {/* Clean Robust Dropdown - Uses native picker to avoid any visual overlapping or clipping */}
-          <div className="relative inline-flex items-center group">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-white group-hover:bg-slate-50 text-slate-800 transition-all duration-200 text-xs font-bold shadow-2xs">
-              <div className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${activeSortOption.bgColor}`}>
-                {React.createElement(activeSortOption.icon, { className: `w-3 h-3 ${activeSortOption.iconColor}` })}
-              </div>
-              <span className="truncate max-w-[150px]">{activeSortOption.label}</span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-colors shrink-0" />
-            </div>
-
-            <select
-              value={currentSort}
-              onChange={e => {
-                setCurrentSort(e.target.value);
-                const opt = SORT_OPTIONS.find(o => o.id === e.target.value);
-                if (opt) showToast(`Ordenado por: ${opt.label}`, 'info');
-              }}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-              aria-label="Criterio de orden"
-            >
-              {SORT_OPTIONS.map(opt => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label} — {opt.description}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {/* Quick 1-tap Sort Pills */}
