@@ -559,7 +559,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .eq('store_id', storeId)
         .maybeSingle();
       
-      let userPref = { darkMode: false, language: 'Español (Sencillo)', dailyReminder: true };
+      let userPref = { darkMode: false, language: 'Español (Sencillo)', dailyReminder: false };
       try {
         const { data: { user: currentUser } } = await supabase.auth.getUser();
         if (currentUser) {
@@ -572,7 +572,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             userPref = {
               darkMode: Boolean(prefData.dark_mode),
               language: prefData.language || 'Español (Sencillo)',
-              dailyReminder: Boolean(prefData.daily_reminder ?? true),
+              dailyReminder: false,
             };
           }
         }
@@ -2328,12 +2328,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }
 
-      // Desacoplar user_preferences (por usuario): dark_mode, language, daily_reminder
-      if (user.id && (newSettings.darkMode !== undefined || newSettings.language !== undefined || newSettings.dailyReminder !== undefined)) {
+      // Desacoplar user_preferences (por usuario): dark_mode, language
+      if (user.id && (newSettings.darkMode !== undefined || newSettings.language !== undefined)) {
         const prefUpdates: any = { user_id: user.id };
         if (newSettings.darkMode !== undefined) prefUpdates.dark_mode = newSettings.darkMode;
         if (newSettings.language !== undefined) prefUpdates.language = newSettings.language;
-        if (newSettings.dailyReminder !== undefined) prefUpdates.daily_reminder = newSettings.dailyReminder;
         await supabase.from('user_preferences').upsert(prefUpdates);
       }
 

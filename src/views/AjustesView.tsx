@@ -1238,20 +1238,6 @@ export const AjustesView: React.FC = () => {
                 ))}
               </div>
             </div>
-
-            {/* Recordatorio diario de ventas */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-slate-900 block">Recordatorio de cierre de caja</span>
-                <span className="text-[11px] text-slate-500">Aviso al final del día para revisar tus ventas</span>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.dailyReminder}
-                onChange={e => updateSettings({ dailyReminder: e.target.checked })}
-                className="w-4 h-4 rounded text-emerald-800 focus:ring-emerald-700 border-slate-300"
-              />
-            </div>
           </div>
         </div>
       )}
