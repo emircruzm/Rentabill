@@ -82,17 +82,17 @@ export const RestockSimulatorView: React.FC = () => {
   }, [currentProduct, getRealProductVelocity]);
 
   const simulationCalculations = useMemo(() => {
-    if (!currentProduct) {
+    if (!currentProduct || currentProduct.costPrice <= 0 || simulatedQuantity <= 0) {
       return {
         totalCost: 0,
-        unitCost: 0,
-        unitSale: 0,
+        unitCost: currentProduct?.costPrice || 0,
+        unitSale: currentProduct?.salePrice || 0,
         totalRevenue: 0,
         totalProfit: 0,
-        daysToSell: 1,
+        daysToSell: 0,
         dailyProfitGain: 0,
-        scoreGain: 5,
-        riskStatus: 'ok' as const,
+        scoreGain: 0,
+        isValid: false,
       };
     }
 
@@ -100,9 +100,11 @@ export const RestockSimulatorView: React.FC = () => {
     const totalRevenue = Number((simulatedQuantity * currentProduct.salePrice).toFixed(2));
     const totalProfit = Number((totalRevenue - totalCost).toFixed(2));
 
-    // Days to sell calculated from confirmed real history velocity!
-    const daysToSell = realVelocityInfo.daysToDeplete(simulatedQuantity);
-    const dailyProfitGain = Number((totalProfit / Math.max(1, daysToSell)).toFixed(2));
+    // Days to sell calculated from confirmed real history velocity with NaN/Infinity/negative protection
+    const rawDays = realVelocityInfo.daysToDeplete(simulatedQuantity);
+    const isValidDays = Number.isFinite(rawDays) && !isNaN(rawDays) && rawDays > 0;
+    const daysToSell = isValidDays ? Math.max(1, Math.round(rawDays)) : 0;
+    const dailyProfitGain = isValidDays ? Number((totalProfit / Math.max(1, daysToSell)).toFixed(2)) : 0;
     const scoreGain = Math.min(15, Math.max(3, Math.round(dailyProfitGain * 1.2)));
 
     return {
@@ -114,8 +116,21 @@ export const RestockSimulatorView: React.FC = () => {
       daysToSell,
       dailyProfitGain,
       scoreGain,
+      isValid: isValidDays && totalCost > 0,
     };
   }, [currentProduct, simulatedQuantity, realVelocityInfo]);
+
+  const isFormValid = useMemo(() => {
+    return Boolean(
+      currentProduct &&
+      currentProduct.id &&
+      currentProduct.costPrice > 0 &&
+      simulatedQuantity > 0 &&
+      Number.isFinite(simulatedQuantity) &&
+      simulationCalculations.isValid &&
+      (overridePaymentCondition === 'contado' || (overridePaymentCondition === 'credito' && overrideCreditDays > 0))
+    );
+  }, [currentProduct, simulatedQuantity, simulationCalculations.isValid, overridePaymentCondition, overrideCreditDays]);
 
   // ----------------------------------------------------
   // Supplier Modal Form State
@@ -188,6 +203,7 @@ export const RestockSimulatorView: React.FC = () => {
   // Actions: Save simulation or Execute Restock
   // ----------------------------------------------------
   const computeVerdict = (calc: typeof simulationCalculations, cond: 'contado' | 'credito', creditDays: number): 'CONVIENE' | 'RIESGOSO' | 'NO_CONVIENE' => {
+    if (!calc.isValid || calc.daysToSell <= 0) return 'RIESGOSO';
     if (cond === 'credito') {
       if (calc.daysToSell <= creditDays) return 'CONVIENE';
       if (calc.daysToSell <= creditDays + 15) return 'RIESGOSO';
@@ -200,7 +216,7 @@ export const RestockSimulatorView: React.FC = () => {
   };
 
   const handleSaveSimulationOnly = () => {
-    if (!currentProduct) return;
+    if (!currentProduct || !isFormValid) return;
 
     const verdict = computeVerdict(simulationCalculations, overridePaymentCondition, overrideCreditDays);
 
@@ -225,7 +241,7 @@ export const RestockSimulatorView: React.FC = () => {
   };
 
   const handleExecutePurchaseNow = () => {
-    if (!currentProduct) return;
+    if (!currentProduct || !isFormValid) return;
 
     const verdict = computeVerdict(simulationCalculations, overridePaymentCondition, overrideCreditDays);
 
@@ -338,20 +354,29 @@ export const RestockSimulatorView: React.FC = () => {
               onChange={e => setSelectedProductId(e.target.value)}
               className="w-full p-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
             >
-              {products.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name} (Cantidad: {p.stock} • Costo: {formatCurrency(p.costPrice)})
-                </option>
-              ))}
+              {products.length === 0 ? (
+                <option value="" disabled>No hay productos registrados en el inventario</option>
+              ) : (
+                products.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} (Cantidad: {p.stock} • Costo: {formatCurrency(p.costPrice)})
+                  </option>
+                ))
+              )}
             </select>
 
             {/* Quantity Selector Slider or Input */}
             <div className="space-y-1.5 pt-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-slate-500 font-medium">Cantidad de unidades a comprar:</span>
-                <span className="font-mono font-black text-slate-900 text-sm">
-                  {simulatedQuantity} piezas
-                </span>
+                <input
+                  type="number"
+                  min="1"
+                  value={simulatedQuantity || ''}
+                  onChange={e => setSimulatedQuantity(Math.max(0, parseInt(e.target.value) || 0))}
+                  placeholder="0"
+                  className="w-24 px-2.5 py-1 rounded-xl border border-slate-200 text-right font-mono font-black text-slate-900 text-sm focus:outline-none focus:border-emerald-600 bg-slate-50"
+                />
               </div>
 
               <div className="grid grid-cols-4 gap-1.5">
@@ -464,132 +489,151 @@ export const RestockSimulatorView: React.FC = () => {
             )}
           </div>
 
-          {/* 3. Regla de Negocio: Evaluación de Tiempo y Pago (Sin jergas) */}
-          <div className="space-y-2">
-            {overridePaymentCondition === 'contado' ? (
-              // Condición de contado: Dinero parado si no vende rápido
-              <div className="p-4 rounded-3xl bg-amber-50 border border-amber-200 text-amber-950 space-y-2 shadow-xs">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-7 h-7 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
-                    <DollarSign className="w-4 h-4" />
+          {/* 3, 4, 5. Bloque de Resultados: solo cuando todos los campos son válidos */}
+          {!isFormValid ? (
+            <div className="p-6 rounded-3xl bg-slate-50 border border-slate-200/80 text-center space-y-2.5 shadow-2xs">
+              <div className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                <Calculator className="w-5 h-5 text-slate-600" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-slate-800">
+                  Completa los datos para ver el análisis
+                </h4>
+                <p className="text-[11px] text-slate-500 max-w-xs mx-auto leading-relaxed mt-0.5">
+                  Selecciona un producto con costo válido y una cantidad mayor a 0 para proyectar el riesgo, tiempo de venta y ganancia estimada.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* 3. Regla de Negocio: Evaluación de Tiempo y Pago (Sin jergas) */}
+              <div className="space-y-2">
+                {overridePaymentCondition === 'contado' ? (
+                  // Condición de contado: Dinero parado si no vende rápido
+                  <div className="p-4 rounded-3xl bg-amber-50 border border-amber-200 text-amber-950 space-y-2 shadow-xs">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-7 h-7 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+                        <DollarSign className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-amber-900 block">
+                          Pago de contado ({formatCurrency(simulationCalculations.totalCost)})
+                        </span>
+                        <p className="text-xs text-amber-900 mt-1 leading-relaxed">
+                          Este dinero saldrá de inmediato de tu caja. Según tu historial real de ventas de <strong className="text-slate-900">{currentProduct?.name}</strong> (~{realVelocityInfo.dailyVelocity} unids/día), tardarás <strong className="font-mono font-bold text-slate-900">{simulationCalculations.daysToSell > 0 ? `~${simulationCalculations.daysToSell} días` : 'sin datos'}</strong> en vender todo.
+                        </p>
+                        {simulationCalculations.daysToSell > 30 && (
+                          <p className="text-[11px] text-amber-800 font-semibold mt-1">
+                            ⚠️ Alerta: Si tarda más de un mes en venderse, quedará como dinero parado sin generar ganancias rápidas.
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-xs font-bold text-amber-900 block">
-                      Pago de contado ({formatCurrency(simulationCalculations.totalCost)})
+                ) : (
+                  // Condición a crédito: Comparar días para venderse vs días de crédito
+                  (() => {
+                    const canPayInTime = simulationCalculations.daysToSell <= overrideCreditDays;
+
+                    if (canPayInTime) {
+                      return (
+                        <div className="p-4 rounded-3xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-2 shadow-xs">
+                          <div className="flex items-start gap-2.5">
+                            <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 mt-0.5">
+                              <CheckCircle2 className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className="text-xs font-black text-emerald-900 block">
+                                Bajo riesgo: Vas a poder pagar a tiempo
+                              </span>
+                              <p className="text-xs text-emerald-900 mt-1 leading-relaxed">
+                                Te da tiempo de vender antes de pagar. Con tu historial real venderás las {simulatedQuantity} unidades en <strong className="font-mono font-bold text-slate-900">{simulationCalculations.daysToSell > 0 ? `~${simulationCalculations.daysToSell} días` : 'sin datos'}</strong>, y tu proveedor te da <strong className="font-mono font-bold text-emerald-800">{overrideCreditDays} días</strong> de plazo.
+                              </p>
+                              <span className="text-[11px] text-emerald-800 font-bold block mt-1">
+                                ✅ Cobrarás el dinero a tus clientes antes de que llegue la fecha de pago a {selectedSupplier?.name}.
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div className="p-4 rounded-3xl bg-rose-50 border border-rose-200 text-rose-950 space-y-2 shadow-xs">
+                          <div className="flex items-start gap-2.5">
+                            <div className="w-7 h-7 rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0 mt-0.5">
+                              <AlertTriangle className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className="text-xs font-black text-rose-900 block">
+                                Cuidado: podrías tener que pagar antes de vender todo
+                              </span>
+                              <p className="text-xs text-rose-900 mt-1 leading-relaxed">
+                                Tardarías aprox. <strong className="font-mono font-bold text-slate-900">{simulationCalculations.daysToSell > 0 ? `~${simulationCalculations.daysToSell} días` : 'sin datos'}</strong> en vender todo el lote, pero tienes que pagarle al proveedor en solo <strong className="font-mono font-bold text-rose-800">{overrideCreditDays} días</strong>.
+                              </p>
+                              <span className="text-[11px] text-rose-800 font-bold block mt-1">
+                                ⚠️ Podrías quedarte sin efectivo para pagar la factura antes de terminar de vender. Considera pedir menos unidades o pedir un plazo mayor.
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                  })()
+                )}
+              </div>
+
+              {/* 4. Proyección de Resultados */}
+              <div className="p-4 rounded-3xl bg-white border border-slate-100 shadow-xs space-y-3">
+                <span className="text-xs font-bold text-slate-900 block">
+                  Proyección si realizas esta compra
+                </span>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="p-3 bg-slate-50 rounded-2xl">
+                    <span className="text-[10px] text-slate-500 block font-medium">Inversión requerida</span>
+                    <span className="font-mono font-black text-slate-900 text-base">
+                      {formatCurrency(simulationCalculations.totalCost)}
                     </span>
-                    <p className="text-xs text-amber-900 mt-1 leading-relaxed">
-                      Este dinero saldrá de inmediato de tu caja. Según tu historial real de ventas de <strong className="text-slate-900">{currentProduct?.name}</strong> (~{realVelocityInfo.dailyVelocity} unids/día), tardarás <strong className="font-mono font-bold text-slate-900">~{simulationCalculations.daysToSell} días</strong> en vender todo.
-                    </p>
-                    {simulationCalculations.daysToSell > 30 && (
-                      <p className="text-[11px] text-amber-800 font-semibold mt-1">
-                        ⚠️ Alerta: Si tarda más de un mes en venderse, quedará como dinero parado sin generar ganancias rápidas.
-                      </p>
-                    )}
+                    <span className="text-[10px] text-slate-400 block mt-0.5">
+                      {formatCurrency(simulationCalculations.unitCost)} c/u
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-100">
+                    <span className="text-[10px] text-emerald-800 block font-medium">Ganancia diaria extra</span>
+                    <span className="font-mono font-black text-emerald-700 text-base">
+                      +{formatCurrency(simulationCalculations.dailyProfitGain)}/día
+                    </span>
+                    <span className="text-[10px] text-emerald-800 font-bold block mt-0.5">
+                      Ganancia total: +{formatCurrency(simulationCalculations.totalProfit)}
+                    </span>
                   </div>
                 </div>
               </div>
-            ) : (
-              // Condición a crédito: Comparar días para venderse vs días de crédito
-              (() => {
-                const canPayInTime = simulationCalculations.daysToSell <= overrideCreditDays;
 
-                if (canPayInTime) {
-                  return (
-                    <div className="p-4 rounded-3xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-2 shadow-xs">
-                      <div className="flex items-start gap-2.5">
-                        <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 mt-0.5">
-                          <CheckCircle2 className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-black text-emerald-900 block">
-                            Bajo riesgo: Vas a poder pagar a tiempo
-                          </span>
-                          <p className="text-xs text-emerald-900 mt-1 leading-relaxed">
-                            Te da tiempo de vender antes de pagar. Con tu historial real venderás las {simulatedQuantity} unidades en <strong className="font-mono font-bold text-slate-900">~{simulationCalculations.daysToSell} días</strong>, y tu proveedor te da <strong className="font-mono font-bold text-emerald-800">{overrideCreditDays} días</strong> de plazo.
-                          </p>
-                          <span className="text-[11px] text-emerald-800 font-bold block mt-1">
-                            ✅ Cobrarás el dinero a tus clientes antes de que llegue la fecha de pago a {selectedSupplier?.name}.
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                } else {
-                  return (
-                    <div className="p-4 rounded-3xl bg-rose-50 border border-rose-200 text-rose-950 space-y-2 shadow-xs">
-                      <div className="flex items-start gap-2.5">
-                        <div className="w-7 h-7 rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0 mt-0.5">
-                          <AlertTriangle className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <span className="text-xs font-black text-rose-900 block">
-                            Cuidado: podrías tener que pagar antes de vender todo
-                          </span>
-                          <p className="text-xs text-rose-900 mt-1 leading-relaxed">
-                            Tardarías aprox. <strong className="font-mono font-bold text-slate-900">{simulationCalculations.daysToSell} días</strong> en vender todo el lote, pero tienes que pagarle al proveedor en solo <strong className="font-mono font-bold text-rose-800">{overrideCreditDays} días</strong>.
-                          </p>
-                          <span className="text-[11px] text-rose-800 font-bold block mt-1">
-                            ⚠️ Podrías quedarte sin efectivo para pagar la factura antes de terminar de vender. Considera pedir menos unidades o pedir un plazo mayor.
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                }
-              })()
-            )}
-          </div>
+              {/* 5. CTA Buttons: Guardar en Historial y Comprar */}
+              <div className="space-y-2 pt-1">
+                <button
+                  onClick={handleSaveSimulationOnly}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-emerald-800 hover:bg-emerald-900 text-white font-black text-xs shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2 active:scale-98 transition-all"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Guardar Simulación en Historial</span>
+                </button>
 
-          {/* 4. Proyección de Resultados */}
-          <div className="p-4 rounded-3xl bg-white border border-slate-100 shadow-xs space-y-3">
-            <span className="text-xs font-bold text-slate-900 block">
-              Proyección si realizas esta compra
-            </span>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div className="p-3 bg-slate-50 rounded-2xl">
-                <span className="text-[10px] text-slate-500 block font-medium">Inversión requerida</span>
-                <span className="font-mono font-black text-slate-900 text-base">
-                  {formatCurrency(simulationCalculations.totalCost)}
-                </span>
-                <span className="text-[10px] text-slate-400 block mt-0.5">
-                  {formatCurrency(simulationCalculations.unitCost)} c/u
-                </span>
+                <button
+                  onClick={handleExecutePurchaseNow}
+                  className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                >
+                  <Truck className="w-4 h-4 text-emerald-800" />
+                  <span>Marcar Compra Realizada y Sumar Cantidad</span>
+                </button>
+                <p className="text-center text-[10px] text-slate-400">
+                  Quedará registrado para comparar "Lo que dijimos que pasaría" vs "Lo que pasó de verdad"
+                </p>
               </div>
-
-              <div className="p-3 bg-emerald-50/70 rounded-2xl border border-emerald-100">
-                <span className="text-[10px] text-emerald-800 block font-medium">Ganancia diaria extra</span>
-                <span className="font-mono font-black text-emerald-700 text-base">
-                  +{formatCurrency(simulationCalculations.dailyProfitGain)}/día
-                </span>
-                <span className="text-[10px] text-emerald-800 font-bold block mt-0.5">
-                  Ganancia total: +{formatCurrency(simulationCalculations.totalProfit)}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* 5. CTA Buttons: Guardar en Historial y Comprar */}
-          <div className="space-y-2 pt-1">
-            <button
-              onClick={handleSaveSimulationOnly}
-              className="w-full py-3.5 px-4 rounded-2xl bg-emerald-800 hover:bg-emerald-900 text-white font-black text-xs shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2 active:scale-98 transition-all"
-            >
-              <Check className="w-4 h-4" />
-              <span>Guardar Simulación en Historial</span>
-            </button>
-
-            <button
-              onClick={handleExecutePurchaseNow}
-              className="w-full py-3 px-4 rounded-2xl bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all"
-            >
-              <Truck className="w-4 h-4 text-emerald-800" />
-              <span>Marcar Compra Realizada y Sumar Cantidad</span>
-            </button>
-            <p className="text-center text-[10px] text-slate-400">
-              Quedará registrado para comparar "Lo que dijimos que pasaría" vs "Lo que pasó de verdad"
-            </p>
-          </div>
+            </>
+          )}
         </div>
       )}
 
