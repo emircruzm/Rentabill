@@ -190,54 +190,58 @@ export const HistorialView: React.FC = () => {
         </div>
       </div>
 
-      {/* 3-Section Segmented Controls */}
-      <div className="bg-slate-200/80 p-1 rounded-2xl flex items-center gap-1 shadow-inner">
+      {/* Segmented Controls con separación y altura táctil cómoda (mínimo 44px) */}
+      <div className="bg-slate-200/80 p-1.5 rounded-2xl flex items-center gap-1.5 shadow-inner">
         <button
+          type="button"
           onClick={() => setActiveSection('ventas')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-h-[44px] px-1.5 py-2 text-[11px] sm:text-xs font-bold rounded-xl transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 active:scale-95 ${
             activeSection === 'ventas'
-              ? 'bg-white text-emerald-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
           }`}
         >
-          <ShoppingBag className="w-3.5 h-3.5" />
-          <span>Ventas</span>
+          <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate leading-tight">Ventas</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveSection('movimientos')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-h-[44px] px-1.5 py-2 text-[11px] sm:text-xs font-bold rounded-xl transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 active:scale-95 ${
             activeSection === 'movimientos'
-              ? 'bg-white text-emerald-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
           }`}
         >
-          <ArrowUpDown className="w-3.5 h-3.5" />
-          <span>Movimientos</span>
+          <ArrowUpDown className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate leading-tight">Movimientos</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveSection('simulaciones')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-h-[44px] px-1.5 py-2 text-[11px] sm:text-xs font-bold rounded-xl transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 active:scale-95 ${
             activeSection === 'simulaciones'
-              ? 'bg-white text-emerald-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
           }`}
         >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>Simulaciones</span>
+          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate leading-tight">Simulaciones</span>
         </button>
 
         <button
+          type="button"
           onClick={() => setActiveSection('compras')}
-          className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 ${
+          className={`flex-1 min-h-[44px] px-1.5 py-2 text-[11px] sm:text-xs font-bold rounded-xl transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 active:scale-95 ${
             activeSection === 'compras'
-              ? 'bg-white text-emerald-900 shadow-sm'
-              : 'text-slate-600 hover:text-slate-900'
+              ? 'bg-white text-emerald-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
           }`}
         >
-          <Receipt className="w-3.5 h-3.5" />
-          <span>Compras</span>
+          <Receipt className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate leading-tight">Compras</span>
         </button>
       </div>
 
