@@ -23,6 +23,7 @@ import { SpeedCategory, ProductUnit } from '../types';
 import { executeBarcodeScan } from '../utils/barcodeScanner';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { supabase } from '../lib/supabase';
+import { formatCurrency } from '../utils/formatters';
 
 export const ProductRegisterView: React.FC = () => {
   const { addProduct, products, setActiveTab, showToast } = useInventory();
@@ -559,7 +560,7 @@ export const ProductRegisterView: React.FC = () => {
                 {unit === 'kg' ? 'Margen por Kilo' : 'Margen por Unidad'}
               </span>
               <span className="text-sm font-black text-slate-900 font-mono">
-                +${unitMarginDollar.toFixed(2)}
+                +{formatCurrency(unitMarginDollar)}
               </span>
             </div>
           </div>
@@ -588,7 +589,7 @@ export const ProductRegisterView: React.FC = () => {
                 {projectedDailyReturnPercent.toFixed(2)}% <span className="text-xs font-normal text-slate-400">/día</span>
               </div>
               <p className="text-[11px] text-slate-500 mt-0.5">
-                Capital invertido: <strong className="text-slate-800 font-mono">${investedCapital.toFixed(2)}</strong>
+                Capital invertido: <strong className="text-slate-800 font-mono">{formatCurrency(investedCapital)}</strong>
               </p>
             </div>
 

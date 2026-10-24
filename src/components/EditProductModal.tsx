@@ -19,6 +19,7 @@ import { useInventory } from '../context/InventoryContext';
 import { executeBarcodeScan } from '../utils/barcodeScanner';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { supabase } from '../lib/supabase';
+import { formatCurrency } from '../utils/formatters';
 
 interface EditProductModalProps {
   product: Product | null;
@@ -388,7 +389,7 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
                 {unit === 'kg' ? 'Costo por Kilo' : 'Costo de Compra'}
               </span>
               <div className="flex items-center gap-1">
-                <span className="text-xs font-bold text-slate-400 font-mono">$</span>
+                <span className="text-xs font-bold text-slate-400 font-mono">S/</span>
                 <input
                   type="number"
                   step="0.01"
@@ -406,7 +407,7 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
                 {unit === 'kg' ? 'Precio por Kilo' : 'Precio de Venta'}
               </span>
               <div className="flex items-center gap-1">
-                <span className="text-xs font-bold text-emerald-600 font-mono">$</span>
+                <span className="text-xs font-bold text-emerald-600 font-mono">S/</span>
                 <input
                   type="number"
                   step="0.01"
@@ -425,7 +426,7 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
             <div className="flex items-center gap-1.5 text-slate-700">
               <Zap className="w-3.5 h-3.5 text-emerald-600" />
               <span>Margen por {unit === 'kg' ? 'kilo' : 'unidad'}:</span>
-              <strong className="font-mono text-emerald-800">+${unitMarginDollar.toFixed(2)}</strong>
+              <strong className="font-mono text-emerald-800">+{formatCurrency(unitMarginDollar)}</strong>
             </div>
             <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-black font-mono text-[11px]">
               {unitMarginPercent.toFixed(1)}%

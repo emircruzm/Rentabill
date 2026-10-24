@@ -231,7 +231,7 @@ export const AjustesView: React.FC = () => {
     { id: 'cuenta', label: 'Mi cuenta', icon: <User className="w-4 h-4" />, desc: 'Tus datos y contraseña' },
     { id: 'equipo', label: 'Mi equipo', icon: <Users className="w-4 h-4" />, desc: 'Cajeros, repositores y permisos' },
     { id: 'metas', label: 'Metas y avisos', icon: <Target className="w-4 h-4" />, desc: 'Objetivo de ganancia y alertas' },
-    { id: 'datos', label: 'Mis datos', icon: <Database className="w-4 h-4" />, desc: 'Descargar ventas y moneda' },
+    { id: 'datos', label: 'Mis datos', icon: <Database className="w-4 h-4" />, desc: 'Descargar ventas y reportes' },
     { id: 'ayuda', label: 'Ayuda y guía', icon: <HelpCircle className="w-4 h-4" />, desc: 'Cómo usar la app y soporte' },
     { id: 'otros', label: 'Otros ajustes', icon: <Sparkles className="w-4 h-4" />, desc: 'Modo oscuro e idioma' },
   ];
@@ -1298,25 +1298,6 @@ export const AjustesView: React.FC = () => {
               <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
                 Activada
               </span>
-            </div>
-
-            {/* Moneda */}
-            <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-slate-900 block">Símbolo de tu moneda</span>
-                <span className="text-[11px] text-slate-500">Se muestra en todos los precios</span>
-              </div>
-              <select
-                value={storeInfo.currency}
-                onChange={e => updateStoreInfo({ currency: e.target.value })}
-                className="px-2 py-1 rounded-lg border border-slate-200 font-bold text-xs bg-white text-slate-800"
-              >
-                <option value="$">$ (Pesos / Dólares)</option>
-                <option value="S/">S/ (Soles)</option>
-                <option value="Q">Q (Quetzales)</option>
-                <option value="€">€ (Euros)</option>
-                <option value="Bs">Bs (Bolivianos)</option>
-              </select>
             </div>
           </div>
         </div>

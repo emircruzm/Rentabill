@@ -11,14 +11,6 @@ const STORE_TYPES: { id: StoreConfig['type']; label: string; icon: string }[] = 
   { id: 'Otro', label: 'Otro Comercio', icon: '🏪' },
 ];
 
-const CURRENCIES = [
-  { symbol: 'S/', label: 'S/ (Soles Peruanos - Recomendado)' },
-  { symbol: '$', label: '$ (Dólares / Pesos)' },
-  { symbol: '€', label: '€ (Euros)' },
-  { symbol: 'Q', label: 'Q (Quetzales)' },
-  { symbol: 'Bs', label: 'Bs (Bolivianos)' },
-];
-
 const SUGGESTED_LOGOS = ['🏪', '🛒', '🍎', '🍞', '🥤', '🛍️', '💈', '🥑'];
 
 export const OnboardingView: React.FC = () => {
@@ -33,7 +25,7 @@ export const OnboardingView: React.FC = () => {
 
   const [storeName, setStoreName] = useState(onboardingMode === 'add_store' ? 'Mi Nueva Tienda' : 'Mi Bodega');
   const [storeType, setStoreType] = useState<StoreConfig['type']>('Abarrotes');
-  const [currency, setCurrency] = useState('S/');
+  const currency = 'PEN';
   const [selectedEmoji, setSelectedEmoji] = useState('🏪');
   const [customLogoUrl, setCustomLogoUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -240,24 +232,6 @@ export const OnboardingView: React.FC = () => {
                 </label>
               </div>
             </div>
-          </div>
-
-          {/* 4. Moneda */}
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-slate-700 block">
-              Moneda con la que cobras
-            </label>
-            <select
-              value={currency}
-              onChange={e => setCurrency(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-white focus:outline-hidden focus:border-emerald-600"
-            >
-              {CURRENCIES.map(c => (
-                <option key={c.symbol} value={c.symbol}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
           </div>
 
           {/* Botón Continuar */}

@@ -190,13 +190,13 @@ export const InventarioView: React.FC = () => {
           <div className="p-2.5 rounded-xl bg-slate-50">
             <span className="text-[10px] text-slate-500 block font-medium">Dinero confirmado</span>
             <span className="text-sm font-black text-slate-900 font-mono">
-              ${metrics.totalRealCapital.toFixed(2)}
+              {formatCurrency(metrics.totalRealCapital)}
             </span>
           </div>
           <div className="p-2.5 rounded-xl bg-slate-50">
             <span className="text-[10px] text-slate-500 block font-medium">En proceso</span>
             <span className="text-sm font-black text-slate-700 font-mono">
-              ${metrics.totalEstimatedCapital.toFixed(2)}
+              {formatCurrency(metrics.totalEstimatedCapital)}
             </span>
           </div>
         </div>
