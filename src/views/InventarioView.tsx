@@ -113,7 +113,7 @@ export const InventarioView: React.FC = () => {
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
           const matchName = p.name.toLowerCase().includes(q);
-          const matchBarcode = p.barcode.includes(q);
+          const matchBarcode = p.barcode ? p.barcode.toLowerCase().includes(q) : false;
           const matchSku = p.sku?.toLowerCase().includes(q) || false;
           const catName = p.categoryName || p.category || '';
           const matchCategory = catName.toLowerCase().includes(q);
@@ -253,10 +253,12 @@ export const InventarioView: React.FC = () => {
           />
           <button 
             onClick={() => {
-              // Quick simulate barcode scan search
-              const randomProd = calculatedProducts[Math.floor(Math.random() * calculatedProducts.length)];
-              setSearchQuery(randomProd.barcode);
-              showToast(`Código ${randomProd.barcode} escaneado`, 'info');
+              const prodWithCode = calculatedProducts.find(p => !!p.barcode) || calculatedProducts[0];
+              if (prodWithCode) {
+                const code = prodWithCode.barcode || prodWithCode.name;
+                setSearchQuery(code);
+                showToast(`Código ${code} escaneado`, 'info');
+              }
             }}
             title="Escanear Barcode"
             className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-slate-100"

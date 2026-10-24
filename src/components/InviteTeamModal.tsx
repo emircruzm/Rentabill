@@ -6,6 +6,7 @@ import {
   Phone, 
   Shield, 
   Check, 
+  Copy,
   X, 
   ShoppingBag, 
   Boxes, 
@@ -25,12 +26,15 @@ export const InviteTeamModal: React.FC = () => {
     setShowInviteModal, 
     sendInvitation, 
     findUserByUserId, 
-    showToast 
+    showToast,
+    user,
+    copyUserId
   } = useInventory();
 
   const [userIdInput, setUserIdInput] = useState('');
   const [role, setRole] = useState<UserRole>('CAJERO');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copiedOwnCode, setCopiedOwnCode] = useState(false);
   const [recognizedUser, setRecognizedUser] = useState<{
     userId: string;
     name: string;
@@ -54,21 +58,25 @@ export const InviteTeamModal: React.FC = () => {
 
   if (!showInviteModal) return null;
 
+  const handleCopyOwn = () => {
+    if (user.userId) {
+      copyUserId(user.userId);
+      setCopiedOwnCode(true);
+      setTimeout(() => setCopiedOwnCode(false), 2000);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userIdInput.trim()) {
+    const cleanCode = userIdInput.trim().toUpperCase();
+    if (!cleanCode) {
       showToast('Ingresa el ID del usuario', 'alert');
-      return;
-    }
-
-    if (!recognizedUser) {
-      showToast('ID no encontrado en la base de datos', 'alert', 'Verifica el ID (formato RENT-XXXX).');
       return;
     }
 
     try {
       setIsSubmitting(true);
-      const res = await sendInvitation(recognizedUser.userId, role);
+      const res = await sendInvitation(cleanCode, role);
       if (res.success) {
         setUserIdInput('');
         setRecognizedUser(null);
@@ -99,6 +107,32 @@ export const InviteTeamModal: React.FC = () => {
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {/* Tarjeta de Código Propio del Usuario (Corrección #2) */}
+        {user.userId && (
+          <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/90 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">
+                Tu Código para que te inviten:
+              </span>
+              <span className="text-xs font-mono font-black text-slate-900 tracking-wider">
+                {user.userId}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyOwn}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 shrink-0 ${
+                copiedOwnCode
+                  ? 'bg-emerald-700 text-white'
+                  : 'bg-emerald-100 text-emerald-900 hover:bg-emerald-200'
+              }`}
+            >
+              {copiedOwnCode ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Copy className="w-3.5 h-3.5" />}
+              <span>{copiedOwnCode ? '¡Copiado!' : 'Copiar'}</span>
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* 1. CAMPO: ID DEL USUARIO */}
@@ -314,15 +348,15 @@ export const InviteTeamModal: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={!recognizedUser}
+              disabled={isSubmitting || userIdInput.trim().length < 4}
               className={`py-2.5 rounded-xl text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all ${
-                recognizedUser
+                !isSubmitting && userIdInput.trim().length >= 4
                   ? 'bg-emerald-800 hover:bg-emerald-900 text-white active:scale-95 shadow-md shadow-emerald-900/20'
                   : 'bg-slate-200 text-slate-400 cursor-not-allowed'
               }`}
             >
               <UserPlus className="w-4 h-4" />
-              <span>Invitar persona</span>
+              <span>{isSubmitting ? 'Enviando...' : 'Invitar persona'}</span>
             </button>
           </div>
         </form>

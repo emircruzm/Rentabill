@@ -318,7 +318,13 @@ export const POSView: React.FC = () => {
         {posSearch.trim() !== '' && (
           <div className="bg-white rounded-2xl border border-slate-200 p-2 shadow-lg max-h-48 overflow-y-auto space-y-1 z-20">
             {products
-              .filter(p => p.name.toLowerCase().includes(posSearch.toLowerCase()) || p.barcode.includes(posSearch))
+              .filter(p => {
+                const q = posSearch.toLowerCase();
+                const matchName = p.name.toLowerCase().includes(q);
+                const matchBarcode = p.barcode ? p.barcode.toLowerCase().includes(q) : false;
+                const matchSku = p.sku ? p.sku.toLowerCase().includes(q) : false;
+                return matchName || matchBarcode || matchSku;
+              })
               .map(prod => (
                 <div
                   key={prod.id}
@@ -338,7 +344,7 @@ export const POSView: React.FC = () => {
                     )}
                     <div className="min-w-0 truncate">
                       <span className="font-bold text-slate-900 block truncate">{prod.name}</span>
-                      <span className="text-[10px] text-slate-400 block">{prod.barcode} • Cantidad: {prod.stock}</span>
+                      <span className="text-[10px] text-slate-400 block">{prod.barcode ? `Código: ${prod.barcode}` : 'Sin código de barras'} • Stock: {prod.stock}</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -349,6 +355,34 @@ export const POSView: React.FC = () => {
                   </div>
                 </div>
               ))}
+          </div>
+        )}
+
+        {/* Quick Access Pills for Items without Barcode (Fruta suelta, pasaje, granel) */}
+        {products.some(p => !p.barcode) && (
+          <div className="pt-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+              Acceso rápido (sin código de barras):
+            </span>
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+              {products
+                .filter(p => !p.barcode)
+                .slice(0, 6)
+                .map(prod => (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    onClick={() => {
+                      addToCart(prod, 1);
+                      showToast(`+1 ${prod.name}`, 'info');
+                    }}
+                    className="px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 text-slate-700 text-xs font-semibold shrink-0 transition-colors border border-slate-200/60 flex items-center gap-1"
+                  >
+                    <span>{prod.name}</span>
+                    <span className="text-[10px] font-mono text-emerald-700 font-bold">{formatCurrency(prod.salePrice)}</span>
+                  </button>
+                ))}
+            </div>
           </div>
         )}
       </div>

@@ -14,7 +14,7 @@ import {
   AlertTriangle,
   Sparkles
 } from 'lucide-react';
-import { Product, SpeedCategory } from '../types';
+import { Product, SpeedCategory, ProductUnit } from '../types';
 import { useInventory } from '../context/InventoryContext';
 import { executeBarcodeScan } from '../utils/barcodeScanner';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
@@ -170,10 +170,10 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
       setIsSaving(true);
       const success = await updateProduct(product.id, {
         name: name.trim(),
-        barcode: barcode.trim(),
-        sku: sku.trim() || undefined,
+        barcode: barcode.trim() || null,
+        sku: sku.trim() || null,
         category,
-        unit,
+        unit: unit as ProductUnit,
         costPrice,
         salePrice,
         stock,

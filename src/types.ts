@@ -22,7 +22,9 @@ export interface Product {
   storeId: string;
   categoryId: string;
   categoryName?: string;
-  barcode: string;
+  category?: string;
+  barcode?: string | null;
+  sku?: string | null;
   name: string;
   unit: ProductUnit; // pza, kg, lt, caja
   costPrice: number;
@@ -36,7 +38,6 @@ export interface Product {
   createdDaysAgo: number;
   status: ProductStatus;
   imageUrl?: string;
-  sku?: string;
   archivedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -203,10 +204,10 @@ export interface TeamMember {
 }
 
 export interface AppSettings {
-  dailyProfitGoal: number; // in %
+  dailyProfitGoal: number; // in %, mapped to daily_goal_percent
   warnSlowDays: number;
   warnLowStock: number;
-  dailyReminder: boolean; // Managed per user in preferences, kept for backward compat
+  dailyReminder: boolean; // Managed per user in user_preferences
   autoBackup: boolean;
   darkMode: boolean;
   language: string;
@@ -258,11 +259,13 @@ export interface PurchaseRecord {
   paymentCondition: 'contado' | 'credito';
   creditDays: number;
   dueDate?: string;
-  paidAt?: string;
+  paidAt?: string | null;
   totalCost: number;
+  totalAmount: number;
   items: PurchaseItem[];
   createdBy?: string;
   createdAt: string;
+  notes?: string | null;
 }
 
 export type MovementType = 'COMPRA' | 'VENTA' | 'AJUSTE';
@@ -307,10 +310,13 @@ export interface SimulationItem {
   tag?: string;
 }
 
+export type SimulationVerdict = 'CONVIENE' | 'RIESGOSO' | 'NO_CONVIENE';
+export type SimulationStatus = 'PENDIENTE' | 'APLICADA' | 'DESCARTADA' | 'comprado';
+
 export interface PastSimulation {
   id: string;
   date: string; // ISO string or human formatted
-  productId: string;
+  productId?: string;
   productName: string;
   simulatedQuantity: number;
   unitCost: number;
@@ -322,12 +328,14 @@ export interface PastSimulation {
   projectedDailyProfitGain: number;
   projectedScoreGain: number;
   projectedDaysToSell: number;
-  verdict?: 'RECOMENDABLE' | 'RIESGOSA' | 'CRITICA';
-  status: 'pendiente' | 'comprado';
+  verdict?: SimulationVerdict;
+  status: SimulationStatus;
+  purchaseId?: string;
   purchaseDate?: string;
   actualDailyProfitGain?: number;
   actualDaysToSell?: number;
   actualResultNote?: string;
+  details?: Record<string, any>;
   type?: 'individual' | 'canasta';
   title?: string;
   budget?: number;

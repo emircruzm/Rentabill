@@ -187,8 +187,22 @@ export const RestockSimulatorView: React.FC = () => {
   // ----------------------------------------------------
   // Actions: Save simulation or Execute Restock
   // ----------------------------------------------------
+  const computeVerdict = (calc: typeof simulationCalculations, cond: 'contado' | 'credito', creditDays: number): 'CONVIENE' | 'RIESGOSO' | 'NO_CONVIENE' => {
+    if (cond === 'credito') {
+      if (calc.daysToSell <= creditDays) return 'CONVIENE';
+      if (calc.daysToSell <= creditDays + 15) return 'RIESGOSO';
+      return 'NO_CONVIENE';
+    } else {
+      if (calc.daysToSell <= 15) return 'CONVIENE';
+      if (calc.daysToSell <= 30) return 'RIESGOSO';
+      return 'NO_CONVIENE';
+    }
+  };
+
   const handleSaveSimulationOnly = () => {
     if (!currentProduct) return;
+
+    const verdict = computeVerdict(simulationCalculations, overridePaymentCondition, overrideCreditDays);
 
     addPastSimulation({
       productId: currentProduct.id,
@@ -203,7 +217,8 @@ export const RestockSimulatorView: React.FC = () => {
       projectedDailyProfitGain: simulationCalculations.dailyProfitGain,
       projectedScoreGain: simulationCalculations.scoreGain,
       projectedDaysToSell: simulationCalculations.daysToSell,
-      status: 'pendiente',
+      verdict,
+      status: 'PENDIENTE',
     });
 
     setActiveTab('historial');
@@ -212,6 +227,8 @@ export const RestockSimulatorView: React.FC = () => {
   const handleExecutePurchaseNow = () => {
     if (!currentProduct) return;
 
+    const verdict = computeVerdict(simulationCalculations, overridePaymentCondition, overrideCreditDays);
+
     addPastSimulation({
       productId: currentProduct.id,
       productName: currentProduct.name,
@@ -225,7 +242,8 @@ export const RestockSimulatorView: React.FC = () => {
       projectedDailyProfitGain: simulationCalculations.dailyProfitGain,
       projectedScoreGain: simulationCalculations.scoreGain,
       projectedDaysToSell: simulationCalculations.daysToSell,
-      status: 'pendiente',
+      verdict,
+      status: 'PENDIENTE',
     });
 
     // Auto-execute

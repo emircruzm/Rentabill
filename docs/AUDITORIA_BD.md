@@ -2,7 +2,7 @@
 **Proyecto:** Rentabill (Sistema Operativo para Bodegas Peruanas)  
 **Rol:** Arquitecto de Software Senior & Database Administrator (PostgreSQL / Supabase)  
 **Fecha:** Octubre 2026  
-**Entorno de Producción:** Supabase (`befbxlysidbvgtoozuhn.supabase.co`)
+**Entorno de Producción:** Supabase (`hftklhnwinkzsgdcllmg.supabase.co`)
 
 ---
 

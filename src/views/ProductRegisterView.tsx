@@ -19,7 +19,7 @@ import {
   Scale
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
-import { SpeedCategory } from '../types';
+import { SpeedCategory, ProductUnit } from '../types';
 import { executeBarcodeScan } from '../utils/barcodeScanner';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { supabase } from '../lib/supabase';
@@ -200,11 +200,12 @@ export const ProductRegisterView: React.FC = () => {
 
     try {
       setIsSaving(true);
+      const cleanBarcode = barcode.trim() || null;
       const success = await addProduct({
-        barcode: barcode || `775${Date.now()}`,
+        barcode: cleanBarcode,
         name: name.trim(),
         category: category || 'Abarrotes',
-        unit: unit || 'pza',
+        unit: (unit || 'pza') as ProductUnit,
         costPrice,
         salePrice,
         stock,
@@ -239,23 +240,34 @@ export const ProductRegisterView: React.FC = () => {
         </span>
       </div>
 
-      {/* Barcode Scanner Section - Rentabill Design System */}
+      {/* Barcode Scanner Section - Rentabill Design System (Opcional) */}
       <div className="p-4 rounded-3xl bg-white border border-slate-200/90 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-slate-700">
             <Barcode className="w-4 h-4 text-emerald-800" />
-            <span className="text-xs font-bold">Código de Barras</span>
+            <span className="text-xs font-bold">Código de Barras <span className="text-[10px] text-slate-400 font-normal">(opcional)</span></span>
           </div>
 
-          <button 
-            type="button"
-            onClick={handleScanBarcode}
-            disabled={isScanning}
-            className="px-3.5 py-1.5 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 disabled:opacity-50"
-          >
-            <Scan className="w-3.5 h-3.5" />
-            <span>{isScanning ? 'Escaneando...' : 'Escanear'}</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            {barcode && (
+              <button
+                type="button"
+                onClick={() => setBarcode('')}
+                className="px-2 py-1 rounded-lg text-[10px] font-bold text-slate-500 hover:bg-slate-100"
+              >
+                Quitar
+              </button>
+            )}
+            <button 
+              type="button"
+              onClick={handleScanBarcode}
+              disabled={isScanning}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-800 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all active:scale-95 disabled:opacity-50"
+            >
+              <Scan className="w-3.5 h-3.5" />
+              <span>{isScanning ? 'Escaneando...' : 'Escanear'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Framing area for barcode */}
@@ -274,13 +286,13 @@ export const ProductRegisterView: React.FC = () => {
             </span>
           ) : (
             <span className="text-xs text-slate-500 font-medium">
-              Toca para abrir la cámara y escanear
+              Toca para abrir la cámara y escanear (o dejar vacío)
             </span>
           )}
         </div>
 
         <div className="flex items-center justify-between text-[11px] text-slate-400">
-          <span>Formatos: EAN-13, EAN-8, UPC, Code128</span>
+          <span>Opcional: productos sin código se guardan como NULL</span>
           <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 font-semibold text-[10px] border border-emerald-200">
             MLKit Nativo
           </span>

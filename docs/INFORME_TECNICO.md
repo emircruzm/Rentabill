@@ -365,7 +365,7 @@ export interface Supplier {
 
 ## 4. ARQUITECTURA DE BASE DE DATOS POSTGRESQL (SUPABASE v3.1)
 
-El esquema opera sobre PostgreSQL 17 en Supabase (`befbxlysidbvgtoozuhn`), con aislamiento de tiendas y control estricto de accesos:
+El esquema opera sobre PostgreSQL 17 en Supabase (`hftklhnwinkzsgdcllmg`), con aislamiento de tiendas y control estricto de accesos:
 
 ```
                   ┌──────────────────────┐

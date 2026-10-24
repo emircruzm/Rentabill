@@ -15,6 +15,7 @@ import {
   InventoryMovement,
   Supplier,
   PastSimulation,
+  PurchaseRecord,
   TeamInvitation,
   RegisteredDirectoryUser,
   UserStoreMembership
@@ -61,7 +62,7 @@ interface InventoryContextType {
   clearCart: () => void;
   checkout: (paymentMethod: 'efectivo' | 'qr' | 'tarjeta', cashGiven?: number) => Promise<{ success: boolean; change: number }>;
   registerSaleSingle: (productId: string) => Promise<void>;
-  addProduct: (product: Omit<Product, 'id' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo'>) => Promise<boolean>;
+  addProduct: (product: Omit<Product, 'id' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo' | 'storeId' | 'categoryId'> & { storeId?: string; categoryId?: string }) => Promise<boolean>;
   updateProduct: (productId: string, updates: Partial<Omit<Product, 'id' | 'storeId' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo'>>) => Promise<boolean>;
   deleteProduct: (productId: string) => Promise<boolean>;
   calibrationEvent: CalibrationEvent | null;
@@ -80,10 +81,12 @@ interface InventoryContextType {
   inventoryMovements: InventoryMovement[];
   suppliers: Supplier[];
   pastSimulations: PastSimulation[];
+  purchases: PurchaseRecord[];
   addInventoryMovement: (movement: Omit<InventoryMovement, 'id' | 'timestamp'>) => Promise<void>;
   addSupplier: (supplier: Omit<Supplier, 'id'>) => Promise<void>;
   addPastSimulation: (sim: Omit<PastSimulation, 'id' | 'date'>) => Promise<void>;
   confirmPastSimulationPurchase: (simulationId: string) => Promise<void>;
+  payPurchase: (purchaseId: string) => Promise<void>;
   getRealProductVelocity: (productId: string) => { dailyVelocity: number; daysToDeplete: (qty: number) => number; totalUnitsSold: number; isReal: boolean };
   // Auth & Store State
   authScreen: AuthScreen;
@@ -232,6 +235,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovement[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [pastSimulations, setPastSimulations] = useState<PastSimulation[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseRecord[]>([]);
 
   // Multi-Store States (Parte B1)
   const [userStores, setUserStores] = useState<UserStoreMembership[]>([]);
@@ -316,9 +320,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }
 
-      // 2. Fetch Products
+      // 2. Fetch Products from product_stats view (Fuente de verdad del status ESTIMADO/REAL)
       const { data: prodsData, error: prodsErr } = await supabase
-        .from('products')
+        .from('product_stats')
         .select('*')
         .eq('store_id', storeId)
         .is('archived_at', null)
@@ -327,9 +331,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (prodsErr) throw prodsErr;
 
       const loadedProducts: Product[] = (prodsData || []).map(row => {
-        const days = Math.max(0, Math.floor((Date.now() - new Date(row.created_at).getTime()) / (1000 * 60 * 60 * 24)));
-        const cat = (loadedCats || []).find(c => c.id === row.category_id);
-        const catName = cat ? cat.name : (row.category || 'General');
+        const catName = row.category_name || (row.category || 'General');
         return {
           id: row.id,
           storeId: row.store_id,
@@ -346,7 +348,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           estimatedSpeed: row.estimated_speed,
           unitsSold: Number(row.units_sold || 0),
           salesCount: Number(row.sales_count || 0),
-          createdDaysAgo: days,
+          createdDaysAgo: Number(row.created_days_ago || 0),
           status: row.status,
           imageUrl: row.image_url,
           sku: row.sku,
@@ -435,28 +437,71 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .order('created_at', { ascending: false });
       
       if (simsErr) throw simsErr;
-      setPastSimulations((simsData || []).map(sim => ({
-        id: sim.id,
-        date: formatDatePeru(sim.created_at),
-        productId: sim.product_id,
-        productName: sim.product_name,
-        simulatedQuantity: Number(sim.simulated_quantity),
-        unitCost: Number(sim.unit_cost),
-        totalCost: Number(sim.total_cost),
-        supplierId: sim.supplier_id,
-        supplierName: sim.supplier_name,
-        paymentCondition: sim.payment_condition,
-        creditDays: Number(sim.credit_days || 0),
-        projectedDailyProfitGain: Number(sim.projected_daily_profit_gain),
-        projectedScoreGain: Number(sim.projected_score_gain),
-        projectedDaysToSell: Number(sim.projected_days_to_sell),
-        verdict: sim.verdict,
-        status: sim.status,
-        purchaseDate: sim.purchase_date,
-        actualDailyProfitGain: sim.actual_daily_profit_gain ? Number(sim.actual_daily_profit_gain) : undefined,
-        actualDaysToSell: sim.actual_days_to_sell ? Number(sim.actual_days_to_sell) : undefined,
-        actualResultNote: sim.actual_result_note,
-      })));
+      setPastSimulations((simsData || []).map(sim => {
+        const qty = Number(sim.quantity || sim.simulated_quantity || 0);
+        const cost = Number(sim.unit_cost || 0);
+        const total = Number((qty * cost).toFixed(2));
+        const sup = suppliers.find(s => s.id === sim.supplier_id);
+        return {
+          id: sim.id,
+          date: formatDatePeru(sim.created_at),
+          productId: sim.product_id,
+          productName: sim.product_name,
+          simulatedQuantity: qty,
+          unitCost: cost,
+          totalCost: total,
+          supplierId: sim.supplier_id,
+          supplierName: sup ? sup.name : (sim.details?.supplier_name || 'Distribuidor'),
+          paymentCondition: sim.payment_condition,
+          creditDays: Number(sim.credit_days || 0),
+          projectedDailyProfitGain: Number(sim.projected_daily_profit || 0),
+          projectedScoreGain: Number(sim.details?.score_gain || Math.round(Number(sim.projected_daily_profit || 0) * 1.2)),
+          projectedDaysToSell: Number(sim.projected_days_to_sell || 1),
+          verdict: sim.verdict,
+          status: sim.status,
+          purchaseDate: sim.applied_at ? formatDatePeru(sim.applied_at) : undefined,
+          actualDailyProfitGain: sim.actual_daily_profit != null ? Number(sim.actual_daily_profit) : undefined,
+          actualDaysToSell: sim.actual_days_to_sell != null ? Number(sim.actual_days_to_sell) : undefined,
+          actualResultNote: sim.notes || undefined,
+        };
+      }));
+
+      // 6b. Fetch Purchases from purchases (v3.7)
+      try {
+        const { data: purData, error: purErr } = await supabase
+          .from('purchases')
+          .select('*, purchase_items(*), suppliers(name)')
+          .eq('store_id', storeId)
+          .order('created_at', { ascending: false });
+
+        if (!purErr && purData) {
+          setPurchases(purData.map((p: any) => ({
+            id: p.id,
+            storeId: p.store_id,
+            supplierId: p.supplier_id,
+            supplierName: p.suppliers?.name || 'Proveedor',
+            paymentCondition: p.payment_condition,
+            creditDays: Number(p.credit_days || 0),
+            dueDate: p.due_date,
+            paidAt: p.paid_at,
+            totalCost: Number(p.total_amount || 0),
+            totalAmount: Number(p.total_amount || 0),
+            createdAt: p.created_at,
+            notes: p.notes,
+            items: (p.purchase_items || []).map((it: any) => ({
+              id: it.id,
+              purchaseId: it.purchase_id,
+              productId: it.product_id,
+              productName: it.product_name,
+              quantity: Number(it.quantity || 0),
+              unitCost: Number(it.unit_cost || 0),
+              subtotal: Number(it.subtotal || 0),
+            })),
+          })));
+        }
+      } catch (err) {
+        console.warn('Error al cargar compras:', err);
+      }
 
       // 7. Fetch Team Members via store_members
       try {
@@ -479,40 +524,40 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         console.warn('Error al cargar store_members:', err);
       }
 
-      // 8. Fetch Invitations from v_team_invitations
+      // 8. Fetch Invitations from store_invitations (v3.7)
       try {
         const { data: invsData, error: invsErr } = await supabase
-          .from('v_team_invitations')
+          .from('store_invitations')
           .select('*')
           .eq('store_id', storeId)
           .order('created_at', { ascending: false });
         
         if (!invsErr && invsData) {
           setInvitations(invsData.map(i => ({
-            id: i.id,
-            userId: i.user_code,
-            userName: i.user_name,
-            userEmail: i.user_email,
-            userPhone: i.user_phone,
+            id: i.token || i.id,
+            userId: i.email,
+            userName: i.email.split('@')[0],
+            userEmail: i.email,
+            userPhone: '',
             role: i.role,
             status: i.status,
             invitedAt: formatDatePeru(i.created_at),
-            storeName: i.store_name,
-            inviterName: i.inviter_name,
+            storeName: storeData?.name || 'Mi Tienda',
+            inviterName: 'Administrador',
           })));
         }
       } catch (err) {
         console.warn('Error al cargar invitaciones:', err);
       }
 
-      // 9. Fetch App Settings and User Preferences
+      // 9. Fetch Store Settings and User Preferences (v3.7)
       const { data: settData } = await supabase
-        .from('app_settings')
+        .from('store_settings')
         .select('*')
         .eq('store_id', storeId)
         .maybeSingle();
       
-      let userPref = { darkMode: false, language: 'Español (Sencillo)' };
+      let userPref = { darkMode: false, language: 'Español (Sencillo)', dailyReminder: true };
       try {
         const { data: { user: currentUser } } = await supabase.auth.getUser();
         if (currentUser) {
@@ -525,6 +570,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             userPref = {
               darkMode: Boolean(prefData.dark_mode),
               language: prefData.language || 'Español (Sencillo)',
+              dailyReminder: Boolean(prefData.daily_reminder ?? true),
             };
           }
         }
@@ -533,10 +579,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
 
       setSettings({
-        dailyProfitGoal: Number(settData?.daily_profit_goal || 2.0),
-        warnSlowDays: Number(settData?.warn_slow_days || 15),
-        warnLowStock: Number(settData?.warn_low_stock || 10),
-        dailyReminder: Boolean(settData?.daily_reminder ?? true),
+        dailyProfitGoal: Number(settData?.daily_goal_percent ?? 2.0),
+        warnSlowDays: Number(settData?.warn_slow_days ?? 15),
+        warnLowStock: Number(settData?.warn_low_stock ?? 5),
+        dailyReminder: userPref.dailyReminder,
         autoBackup: Boolean(settData?.auto_backup ?? true),
         darkMode: userPref.darkMode,
         language: userPref.language,
@@ -557,16 +603,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             async () => {
               if (activeStoreRequestIdRef.current === reqId) {
                 const { data: pData } = await supabase
-                  .from('products')
+                  .from('product_stats')
                   .select('*')
                   .eq('store_id', storeId)
                   .is('archived_at', null)
                   .order('created_at', { ascending: false });
                 if (pData && activeStoreRequestIdRef.current === reqId) {
                   setProducts(pData.map(row => {
-                    const days = Math.max(0, Math.floor((Date.now() - new Date(row.created_at).getTime()) / (1000 * 60 * 60 * 24)));
-                    const cat = categories.find(c => c.id === row.category_id);
-                    const catName = cat ? cat.name : (row.category || 'General');
+                    const catName = row.category_name || (row.category || 'General');
                     return {
                       id: row.id,
                       storeId: row.store_id,
@@ -583,7 +627,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                       estimatedSpeed: row.estimated_speed,
                       unitsSold: Number(row.units_sold || 0),
                       salesCount: Number(row.sales_count || 0),
-                      createdDaysAgo: days,
+                      createdDaysAgo: Number(row.created_days_ago || 0),
                       status: row.status,
                       imageUrl: row.image_url,
                       sku: row.sku,
@@ -931,37 +975,36 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
         activeUserRef.current = sessionUser.id;
 
-        // Check if there are incoming invitations for this user code
-        if (profile?.user_code) {
+        // Check if there are incoming invitations for this user email (v3.7)
+        const userEmail = profile?.email || sessionUser.email;
+        if (userEmail) {
           try {
             const { data: incInv } = await supabase
-              .from('v_team_invitations')
-              .select('*')
-              .eq('user_code', profile.user_code)
-              .eq('status', 'Esperando')
+              .from('store_invitations')
+              .select('id, token, store_id, email, role, status, created_at, stores(name)')
+              .ilike('email', userEmail)
+              .eq('status', 'PENDIENTE')
               .order('created_at', { ascending: false })
               .limit(1)
               .maybeSingle();
 
             if (incInv) {
-              if (targetStoreId && targetStoreId === incInv.store_id) {
-                await supabase.from('team_invitations').update({ status: 'Usada' }).eq('id', incInv.id);
-              } else {
-                setIncomingInvitation({
-                  id: incInv.id,
-                  userId: incInv.user_code,
-                  userName: incInv.user_name,
-                  userEmail: incInv.user_email,
-                  userPhone: incInv.user_phone,
-                  role: incInv.role,
-                  status: incInv.status,
-                  invitedAt: 'Hoy',
-                  storeName: incInv.store_name,
-                  inviterName: incInv.inviter_name,
-                });
-                if (!targetStoreId) {
-                  setShowInvitationConfirmModal(true);
-                }
+              const storeObj: any = incInv.stores;
+              const storeName = storeObj?.name || 'Una tienda';
+              setIncomingInvitation({
+                id: incInv.token || incInv.id,
+                userId: profile?.user_code || userEmail,
+                userName: profile?.name || userEmail.split('@')[0],
+                userEmail: incInv.email,
+                userPhone: profile?.phone || '',
+                role: incInv.role,
+                status: incInv.status,
+                invitedAt: 'Hoy',
+                storeName: storeName,
+                inviterName: 'Administrador',
+              });
+              if (!targetStoreId) {
+                setShowInvitationConfirmModal(true);
               }
             }
           } catch (invErr) {
@@ -1045,38 +1088,35 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, [loadStoreData]);
 
-  const checkIncomingInvitations = useCallback(async (targetCode?: string) => {
-    const code = targetCode || user.userId;
-    if (!code) return;
+  const checkIncomingInvitations = useCallback(async (targetEmail?: string) => {
+    const emailToSearch = targetEmail || user.emailOrPhone;
+    if (!emailToSearch || !emailToSearch.includes('@')) return;
 
     try {
       const { data: incInv, error } = await supabase
-        .from('team_invitations')
-        .select('*')
-        .eq('user_code', code)
-        .eq('status', 'Esperando')
+        .from('store_invitations')
+        .select('id, token, store_id, email, role, status, created_at, stores(name)')
+        .ilike('email', emailToSearch)
+        .eq('status', 'PENDIENTE')
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (!error && incInv) {
-        if (user.storeId && user.storeId === incInv.store_id) {
-          await supabase.from('team_invitations').update({ status: 'Usada' }).eq('id', incInv.id);
-          setIncomingInvitation(null);
-          return;
-        }
+        const storeObj: any = incInv.stores;
+        const storeName = storeObj?.name || 'Una tienda';
 
         setIncomingInvitation({
-          id: incInv.id,
-          userId: incInv.user_code,
-          userName: incInv.user_name,
-          userEmail: incInv.user_email,
-          userPhone: incInv.user_phone,
+          id: incInv.token || incInv.id,
+          userId: user.userId || emailToSearch,
+          userName: user.name || emailToSearch.split('@')[0],
+          userEmail: incInv.email,
+          userPhone: user.phone || '',
           role: incInv.role,
           status: incInv.status,
           invitedAt: 'Hoy',
-          storeName: incInv.store_name,
-          inviterName: incInv.inviter_name,
+          storeName: storeName,
+          inviterName: 'Administrador',
         });
       } else if (!error && !incInv) {
         setIncomingInvitation(null);
@@ -1084,28 +1124,27 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (e) {
       console.warn('Error verificando invitaciones entrantes:', e);
     }
-  }, [user.userId, user.storeId]);
+  }, [user.emailOrPhone, user.userId, user.name, user.phone]);
 
-  // Real-time and periodic polling for incoming team invitations
+  // Real-time and periodic polling for incoming team invitations (v3.7)
   useEffect(() => {
-    if (!user.userId) return;
+    if (!user.emailOrPhone || !user.emailOrPhone.includes('@')) return;
 
     // Check immediately
-    checkIncomingInvitations(user.userId);
+    checkIncomingInvitations(user.emailOrPhone);
 
-    // Listen to changes in team_invitations for this user_code
+    // Listen to changes in store_invitations for this user email
     const channel = supabase
-      .channel(`invitations_${user.userId}`)
+      .channel(`invitations_${user.userId || 'user'}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'team_invitations',
-          filter: `user_code=eq.${user.userId}`,
+          table: 'store_invitations',
         },
         () => {
-          checkIncomingInvitations(user.userId);
+          checkIncomingInvitations(user.emailOrPhone);
           if (user.storeId) {
             loadStoreData(user.storeId);
           }
@@ -1357,7 +1396,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [products, user.storeId, user.name, user.id, sales.length, loadStoreData, showToast]);
 
   // Add Product to Supabase
-  const addProduct = useCallback(async (productData: Omit<Product, 'id' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo'>): Promise<boolean> => {
+  const addProduct = useCallback(async (productData: Omit<Product, 'id' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo' | 'storeId' | 'categoryId'> & { storeId?: string; categoryId?: string }): Promise<boolean> => {
     if (!user.storeId) {
       showToast('No se encontró una tienda asignada', 'alert');
       return false;
@@ -1370,9 +1409,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Buscar category_id de la tienda
       let targetCategoryId = productData.categoryId;
       if (!targetCategoryId) {
-        const cat = categories.find(c => c.name.toLowerCase() === (productData.category || 'General').toLowerCase());
+        const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
+        const cat = catData?.find((c: any) => c.name.toLowerCase() === (productData.category || 'General').toLowerCase());
         if (cat) targetCategoryId = cat.id;
-        else if (categories.length > 0) targetCategoryId = categories[0].id;
+        else if (catData && catData.length > 0) targetCategoryId = catData[0].id;
       }
 
       const { data: inserted, error: insertErr } = await supabase
@@ -1380,18 +1420,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .insert({
           store_id: user.storeId,
           category_id: targetCategoryId,
-          barcode: productData.barcode,
-          sku: productData.sku || `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
-          name: productData.name,
+          barcode: productData.barcode?.trim() || null,
+          sku: productData.sku?.trim() || null,
+          name: productData.name.trim(),
           unit: productData.unit || 'pza',
           cost_price: productData.costPrice,
           sale_price: productData.salePrice,
           stock: initialStock,
           reorder_point: productData.reorderPoint || 0,
-          estimated_speed: productData.estimatedSpeed,
+          estimated_speed: productData.estimatedSpeed || null,
           units_sold: 0,
           sales_count: 0,
-          status: 'ESTIMADO',
           image_url: productData.imageUrl || null,
         })
         .select()
@@ -1430,6 +1469,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     try {
       setLoading(true);
+      const prevStock = currentProd.stock;
       // Si el stock cambió, ejecutar RPC adjust_stock (B7 / C9)
       if (updates.stock !== undefined && Number(updates.stock) !== prevStock) {
         const diff = Number((Number(updates.stock) - prevStock).toFixed(3));
@@ -1447,12 +1487,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       const dbUpdates: any = {};
       if (updates.name !== undefined) dbUpdates.name = updates.name.trim();
-      if (updates.barcode !== undefined) dbUpdates.barcode = updates.barcode.trim();
-      if (updates.sku !== undefined) dbUpdates.sku = updates.sku.trim() || null;
+      if (updates.barcode !== undefined) dbUpdates.barcode = updates.barcode ? updates.barcode.trim() || null : null;
+      if (updates.sku !== undefined) dbUpdates.sku = updates.sku ? updates.sku.trim() || null : null;
       if (updates.categoryId !== undefined) {
         dbUpdates.category_id = updates.categoryId;
       } else if (updates.category !== undefined) {
-        const cat = categories.find(c => c.name.toLowerCase() === updates.category!.toLowerCase());
+        const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
+        const cat = catData?.find((c: any) => c.name.toLowerCase() === updates.category!.toLowerCase());
         if (cat) dbUpdates.category_id = cat.id;
       }
       if (updates.unit !== undefined) dbUpdates.unit = updates.unit;
@@ -1590,28 +1631,33 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [user.storeId, loadStoreData, showToast]);
 
-  // Add Simulation
+  // Add Simulation (v3.7)
   const addPastSimulation = useCallback(async (simData: Omit<PastSimulation, 'id' | 'date'>) => {
     if (!user.storeId) return;
 
     try {
       setLoading(true);
+      const targetProd = products.find(p => p.id === simData.productId);
+      const unitSalePrice = targetProd ? targetProd.salePrice : Number((simData.unitCost * 1.3).toFixed(2));
+
       const { error: simErr } = await supabase.from('simulations').insert({
         store_id: user.storeId,
-        product_id: simData.productId,
+        product_id: simData.productId || null,
         product_name: simData.productName,
-        simulated_quantity: simData.simulatedQuantity,
-        unit_cost: simData.unitCost,
-        total_cost: simData.totalCost,
         supplier_id: simData.supplierId || null,
-        supplier_name: simData.supplierName,
+        quantity: simData.simulatedQuantity,
+        unit_cost: simData.unitCost,
+        unit_price: unitSalePrice,
         payment_condition: simData.paymentCondition,
-        credit_days: simData.creditDays || 0,
-        projected_daily_profit_gain: simData.projectedDailyProfitGain,
-        projected_score_gain: simData.projectedScoreGain,
-        projected_days_to_sell: simData.projectedDaysToSell,
-        verdict: simData.verdict || 'RECOMENDABLE',
-        status: simData.status || 'pendiente',
+        credit_days: simData.paymentCondition === 'credito' ? (simData.creditDays || 0) : 0,
+        projected_days_to_sell: Math.max(0.1, Number(simData.projectedDaysToSell)),
+        projected_daily_profit: Number(simData.projectedDailyProfitGain),
+        verdict: simData.verdict || 'CONVIENE',
+        details: {
+          supplier_name: simData.supplierName,
+          score_gain: simData.projectedScoreGain,
+          total_cost: simData.totalCost,
+        },
       });
 
       if (simErr) throw simErr;
@@ -1623,85 +1669,34 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } finally {
       setLoading(false);
     }
-  }, [user.storeId, loadStoreData, showToast]);
+  }, [user.storeId, products, loadStoreData, showToast]);
 
-  // Confirm Purchase from Simulator
+  // Confirm Purchase from Simulator via process_purchase (v3.7)
   const confirmPastSimulationPurchase = useCallback(async (simulationId: string) => {
     if (!user.storeId) return;
     const sim = pastSimulations.find(s => s.id === simulationId);
     if (!sim) return;
 
-    const product = products.find(p => p.id === sim.productId);
-    const prevStock = product?.stock || 0;
-    const todayStr = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short' }).format(new Date());
-
     try {
       setLoading(true);
 
-      const { data, error: rpcErr } = await supabase.rpc('register_purchase', {
+      const itemsPayload = [{
+        product_id: sim.productId,
+        quantity: sim.simulatedQuantity,
+        unit_cost: sim.unitCost
+      }];
+
+      const { data: purchData, error: rpcErr } = await supabase.rpc('process_purchase', {
         p_store_id: user.storeId,
-        p_items: [{
-          product_id: sim.productId,
-          quantity: sim.simulatedQuantity,
-          unit_cost: sim.unitCost
-        }],
         p_supplier_id: sim.supplierId || null,
-        p_simulation_id: simulationId,
-        p_note: `Compra ejecutada desde Simulador (${sim.paymentCondition})`
+        p_items: itemsPayload,
+        p_note: `Compra ejecutada desde Simulador (${sim.paymentCondition})`,
+        p_payment_condition: sim.paymentCondition,
+        p_credit_days: sim.paymentCondition === 'credito' ? (sim.creditDays || 0) : 0,
+        p_simulation_ids: [simulationId],
       });
 
-      if (rpcErr) {
-        console.warn('RPC register_purchase fallback manual:', rpcErr);
-        // Fallback transaccional manual creando purchases y purchase_items
-        const { data: purchData, error: purchErr } = await supabase.from('purchases').insert({
-          store_id: user.storeId,
-          supplier_id: sim.supplierId || null,
-          simulation_id: simulationId,
-          total_amount: sim.totalCost,
-          payment_condition: sim.paymentCondition,
-          credit_days: sim.creditDays || 0,
-          status: 'COMPLETADO',
-          notes: `Compra ejecutada desde Simulador (${sim.paymentCondition})`
-        }).select().single();
-
-        if (purchErr) throw purchErr;
-
-        await supabase.from('purchase_items').insert({
-          purchase_id: purchData.id,
-          product_id: sim.productId,
-          quantity: sim.simulatedQuantity,
-          unit_cost: sim.unitCost,
-          subtotal: sim.totalCost
-        });
-
-        await supabase.from('inventory_movements').insert({
-          store_id: user.storeId,
-          product_id: sim.productId,
-          product_name: sim.productName,
-          type: 'COMPRA',
-          quantity: sim.simulatedQuantity,
-          previous_stock: prevStock,
-          new_stock: prevStock + sim.simulatedQuantity,
-          purchase_id: purchData.id,
-          supplier_id: sim.supplierId || null,
-          user_id: user.id || null,
-          user_name: user.name || 'Administrador',
-          supplier_name: sim.supplierName || 'Proveedor',
-          note: `Compra ejecutada desde Simulador (${sim.paymentCondition})`,
-        });
-
-        await supabase.from('products').update({
-          stock: prevStock + sim.simulatedQuantity,
-        }).eq('id', sim.productId);
-
-        await supabase.from('simulations').update({
-          status: 'comprado',
-          purchase_date: new Date().toISOString(),
-          actual_daily_profit_gain: sim.projectedDailyProfitGain,
-          actual_days_to_sell: sim.projectedDaysToSell,
-          actual_result_note: `Compra confirmada el ${todayStr}. Se agregaron ${sim.simulatedQuantity} unids al stock.`,
-        }).eq('id', simulationId);
-      }
+      if (rpcErr) throw rpcErr;
 
       await loadStoreData(user.storeId);
       showToast("¡Compra registrada en inventario!", 'success', `Se sumaron ${sim.simulatedQuantity} unidades de ${sim.productName}`);
@@ -1711,7 +1706,33 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } finally {
       setLoading(false);
     }
-  }, [user.storeId, user.name, user.id, pastSimulations, products, loadStoreData, showToast]);
+  }, [user.storeId, pastSimulations, loadStoreData, showToast]);
+
+  // Pay Purchase via pay_purchase RPC (v3.7)
+  const payPurchase = useCallback(async (purchaseId: string) => {
+    if (!user.storeId) return;
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.rpc('pay_purchase', {
+        p_store_id: user.storeId,
+        p_purchase_id: purchaseId,
+      });
+
+      if (error) throw error;
+      if (data && data.success === false && data.error === 'ya_pagada') {
+        showToast('Esta compra ya estaba marcada como pagada', 'info');
+        return;
+      }
+
+      await loadStoreData(user.storeId);
+      showToast('Pago registrado correctamente', 'success');
+    } catch (err: any) {
+      console.error('Error pagando compra:', err);
+      showToast('Error al registrar pago', 'alert', err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [user.storeId, loadStoreData, showToast]);
 
   const getRealProductVelocity = useCallback((productId: string) => {
     const product = products.find(p => p.id === productId);
@@ -1854,9 +1875,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         activeStoreId = profile.active_store_id;
       } else {
         activeStoreId = mappedStores[0].storeId;
-        await supabase.rpc('switch_store', { p_store_id: activeStoreId }).catch(() => {
-          supabase.from('profiles').update({ active_store_id: activeStoreId }).eq('id', data.user.id);
-        });
+        const { error: switchErr } = await supabase.rpc('switch_store', { p_store_id: activeStoreId });
+        if (switchErr) {
+          await supabase.from('profiles').update({ active_store_id: activeStoreId }).eq('id', data.user.id);
+        }
       }
 
       mappedStores.forEach(m => { m.isActive = m.storeId === activeStoreId; });
@@ -2292,24 +2314,24 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     try {
       const dbStoreUpdates: any = {};
-      if (newSettings.dailyProfitGoal !== undefined) dbStoreUpdates.daily_profit_goal = newSettings.dailyProfitGoal;
+      if (newSettings.dailyProfitGoal !== undefined) dbStoreUpdates.daily_goal_percent = newSettings.dailyProfitGoal;
       if (newSettings.warnSlowDays !== undefined) dbStoreUpdates.warn_slow_days = newSettings.warnSlowDays;
       if (newSettings.warnLowStock !== undefined) dbStoreUpdates.warn_low_stock = newSettings.warnLowStock;
-      if (newSettings.dailyReminder !== undefined) dbStoreUpdates.daily_reminder = newSettings.dailyReminder;
       if (newSettings.autoBackup !== undefined) dbStoreUpdates.auto_backup = newSettings.autoBackup;
 
       if (Object.keys(dbStoreUpdates).length > 0) {
-        await supabase.from('app_settings').upsert({
+        await supabase.from('store_settings').upsert({
           store_id: user.storeId,
           ...dbStoreUpdates,
         });
       }
 
-      // Desacoplar user_preferences para modo oscuro y lenguaje del usuario
-      if (user.id && (newSettings.darkMode !== undefined || newSettings.language !== undefined)) {
+      // Desacoplar user_preferences (por usuario): dark_mode, language, daily_reminder
+      if (user.id && (newSettings.darkMode !== undefined || newSettings.language !== undefined || newSettings.dailyReminder !== undefined)) {
         const prefUpdates: any = { user_id: user.id };
         if (newSettings.darkMode !== undefined) prefUpdates.dark_mode = newSettings.darkMode;
         if (newSettings.language !== undefined) prefUpdates.language = newSettings.language;
+        if (newSettings.dailyReminder !== undefined) prefUpdates.daily_reminder = newSettings.dailyReminder;
         await supabase.from('user_preferences').upsert(prefUpdates);
       }
 
@@ -2370,40 +2392,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const clean = targetId.trim().toUpperCase();
 
     try {
-      // 1. Try find_profile_by_code RPC (A3: seguridad y aislamiento)
-      const { data: foundProfile, error: rpcErr } = await supabase.rpc('find_profile_by_code', {
-        user_code: clean
-      });
-
-      if (!rpcErr && foundProfile && foundProfile.length > 0) {
-        const item = foundProfile[0];
-        return {
-          userId: item.user_code || clean,
-          name: item.name || 'Usuario',
-          email: '',
-          phone: '',
-        };
-      }
-
-      // 1.1 Fallback a get_user_by_code RPC si existiera
-      const { data: rpcUser } = await supabase.rpc('get_user_by_code', {
-        p_code: clean
-      });
-
-      if (rpcUser) {
-        return {
-          userId: rpcUser.userId || clean,
-          name: rpcUser.name || 'Usuario',
-          email: rpcUser.email || '',
-          phone: rpcUser.phone || '',
-        };
-      }
-
-      // 2. Direct profiles select fallback
+      // Direct profiles select fallback
       const { data, error } = await supabase
         .from('profiles')
         .select('user_code, name, email, phone')
-        .ilike('user_code', clean)
+        .eq('user_code', clean)
         .maybeSingle();
 
       if (error || !data) return null;
@@ -2419,7 +2412,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, []);
 
-  // Send Invitation via Supabase RPC
+  // Send Invitation via Supabase RPC invite_by_code (v3.7)
   const sendInvitation = useCallback(async (targetCode: string, assignedRole: UserRole): Promise<{ success: boolean; error?: string }> => {
     if (!user.storeId) {
       showToast('No hay tienda activa para invitar', 'alert');
@@ -2427,18 +2420,32 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
 
     try {
-      const { data: rpcRes, error: rpcErr } = await supabase.rpc('send_invitation', {
+      const cleanCode = targetCode.trim().toUpperCase();
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('invite_by_code', {
         p_store_id: user.storeId,
-        p_target_user_code: targetCode.trim(),
+        p_user_code: cleanCode,
         p_role: assignedRole,
       });
 
       if (rpcErr) throw rpcErr;
 
+      if (rpcRes && rpcRes.success === false) {
+        if (rpcRes.error === 'ya_es_miembro') {
+          showToast('El usuario ya es miembro de esta tienda', 'alert');
+          return { success: false, error: 'ya_es_miembro' };
+        }
+        if (rpcRes.error === 'invitacion_pendiente') {
+          showToast('Ya existe una invitación pendiente para este usuario', 'alert');
+          return { success: false, error: 'invitacion_pendiente' };
+        }
+        showToast(`No se pudo invitar: ${rpcRes.error}`, 'alert');
+        return { success: false, error: rpcRes.error };
+      }
+
       setShowInviteModal(false);
       await loadStoreData(user.storeId);
-      const targetName = rpcRes?.target_name || targetCode;
-      showToast(`¡Invitación enviada a ${targetName}!`, 'success', `Rol: ${ROLE_INFO[assignedRole].name}`);
+      const targetName = rpcRes?.invited_name || cleanCode;
+      showToast(`¡Invitaste a ${targetName}!`, 'success', `Rol asignado: ${ROLE_INFO[assignedRole].name}`);
       return { success: true };
     } catch (err: any) {
       console.error('Error enviando invitación:', err);
@@ -2449,7 +2456,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const cancelInvitation = useCallback(async (invitationId: string) => {
     try {
-      await supabase.from('team_invitations').delete().eq('id', invitationId);
+      await supabase.from('store_invitations').delete().eq('id', invitationId);
       setInvitations(prev => prev.filter(inv => inv.id !== invitationId));
       setIncomingInvitation(prev => (prev?.id === invitationId ? null : prev));
       showToast('Invitación cancelada', 'info');
@@ -2655,10 +2662,12 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         inventoryMovements,
         suppliers,
         pastSimulations,
+        purchases,
         addInventoryMovement,
         addSupplier,
         addPastSimulation,
         confirmPastSimulationPurchase,
+        payPurchase,
         getRealProductVelocity,
         authScreen,
         setAuthScreen,
