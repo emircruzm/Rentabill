@@ -32,8 +32,8 @@ import {
   QrCode,
   Upload
 } from 'lucide-react';
-import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
-import { storageRepository } from '@data/repositories/storageRepository';
+import { capacitorCamera } from '@platform/index';
+import { uploadImageUseCase } from '@application/index';
 import { useInventory } from '../context/InventoryContext';
 import { UserRole, StoreConfig, TeamInvitation, TeamMember } from '../types';
 import { formatPeruPhoneDisplay } from '../utils/formatters';
@@ -154,35 +154,22 @@ export const AjustesView: React.FC = () => {
   const handleUploadQrPhoto = async () => {
     try {
       setIsUploadingQr(true);
-      const photo = await CapacitorCamera.getPhoto({
+      const captured = await capacitorCamera.capturePhoto({
         quality: 90,
-        allowEditing: false,
-        resultType: CameraResultType.Base64,
-        source: CameraSource.Prompt,
+        prefix: `qr_store_${storeInfo.id || 'store'}`,
       });
 
-      if (!photo.base64String) return;
+      if (!captured) return;
 
-      const fileName = `qr_store_${storeInfo.id || 'store'}_${Date.now()}.${photo.format || 'png'}`;
-      const byteCharacters = atob(photo.base64String);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: `image/${photo.format || 'png'}` });
-
-      const publicUrl = await storageRepository.uploadFile('product-images', fileName, blob);
+      const publicUrl = await uploadImageUseCase('product-images', captured.fileName, captured.blob);
 
       if (publicUrl) {
         await updateStoreInfo({ qrImageUrl: publicUrl });
         showToast('Código QR guardado correctamente', 'success');
       }
     } catch (err: any) {
-      if (err.message !== 'User cancelled photos app') {
-        console.error('Error al subir QR:', err);
-        showToast('Error al subir código QR', 'alert', err.message);
-      }
+      console.error('Error al subir QR:', err);
+      showToast('Error al subir código QR', 'alert', err.message);
     } finally {
       setIsUploadingQr(false);
     }

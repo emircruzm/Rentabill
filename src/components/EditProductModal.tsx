@@ -17,8 +17,8 @@ import {
 import { Product, SpeedCategory, ProductUnit } from '../types';
 import { useInventory } from '../context/InventoryContext';
 import { executeBarcodeScan } from '../utils/barcodeScanner';
-import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
-import { supabase } from '../lib/supabase';
+import { capacitorCamera } from '@platform/index';
+import { uploadImageUseCase } from '@application/index';
 import { formatCurrency } from '../utils/formatters';
 
 interface EditProductModalProps {
@@ -107,50 +107,26 @@ export const EditProductModal: React.FC<EditProductModalProps> = ({
     }
   };
 
-  // Real Camera Photo Capture & Upload to Supabase Storage
+  // Real Camera Photo Capture & Upload via Platform and Use Case
   const handleTakePhoto = async () => {
     try {
       setIsUploadingPhoto(true);
-      const photo = await Camera.getPhoto({
+      const captured = await capacitorCamera.capturePhoto({
         quality: 80,
-        allowEditing: false,
-        resultType: CameraResultType.Base64,
-        source: CameraSource.Prompt,
+        prefix: `product_${product.id}`,
       });
 
-      if (!photo.base64String) return;
+      if (!captured) return;
 
-      const fileName = `product_${product.id}_${Date.now()}.${photo.format || 'jpeg'}`;
-      const byteCharacters = atob(photo.base64String);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: `image/${photo.format || 'jpeg'}` });
+      const publicUrl = await uploadImageUseCase('product-images', captured.fileName, captured.blob);
 
-      const { error: uploadErr } = await supabase.storage
-        .from('product-images')
-        .upload(fileName, blob, {
-          contentType: `image/${photo.format || 'jpeg'}`,
-          upsert: true,
-        });
-
-      if (uploadErr) throw uploadErr;
-
-      const { data: publicData } = supabase.storage
-        .from('product-images')
-        .getPublicUrl(fileName);
-
-      if (publicData?.publicUrl) {
-        setImageUrl(publicData.publicUrl);
+      if (publicUrl) {
+        setImageUrl(publicUrl);
         showToast('Foto cargada correctamente', 'success');
       }
     } catch (err: any) {
-      if (err.message !== 'User cancelled photos app') {
-        console.error('Error al capturar foto:', err);
-        showToast('Error al capturar foto', 'alert', err.message);
-      }
+      console.error('Error al capturar foto:', err);
+      showToast('Error al capturar foto', 'alert', err.message);
     } finally {
       setIsUploadingPhoto(false);
     }

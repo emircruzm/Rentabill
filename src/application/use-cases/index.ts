@@ -3,6 +3,7 @@ export * from './inventory/adjustStockUseCase';
 export * from './inventory/registerProductUseCase';
 export * from './inventory/updateProductUseCase';
 export * from './inventory/deleteProductUseCase';
+export * from './inventory/uploadImageUseCase';
 export * from './purchases/processPurchaseUseCase';
 export * from './purchases/payPurchaseUseCase';
 export * from './simulations/createSimulationUseCase';

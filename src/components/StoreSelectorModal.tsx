@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { App } from '@capacitor/app';
+import { capacitorAppLifecycle } from '@platform/index';
 import { 
   X, 
   Store, 
@@ -34,21 +34,16 @@ export const StoreSelectorModal: React.FC = () => {
   useEffect(() => {
     if (!showStoreSelectorModal) return;
 
-    let backHandler: any;
-    const addListener = async () => {
-      try {
-        backHandler = await App.addListener('backButton', () => {
-          setShowStoreSelectorModal(false);
-        });
-      } catch {
-        // En entorno web / sin Capacitor nativo
-      }
-    };
-    addListener();
+    let cleanupFn: (() => void) | undefined;
+    capacitorAppLifecycle.onBackButton(() => {
+      setShowStoreSelectorModal(false);
+    }).then(cleanup => {
+      cleanupFn = cleanup;
+    });
 
     return () => {
-      if (backHandler && typeof backHandler.remove === 'function') {
-        backHandler.remove();
+      if (cleanupFn) {
+        cleanupFn();
       }
     };
   }, [showStoreSelectorModal, setShowStoreSelectorModal]);
