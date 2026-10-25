@@ -1,3 +1,5 @@
+Nota: este informe técnico es anterior a la reorganización en capas y a la versión 3.7 de la base de datos, y algunas secciones pueden estar desactualizadas. La referencia vigente de la arquitectura es docs/ARQUITECTURA.md.
+
 # INFORME TÉCNICO DE ARQUITECTURA Y DESARROLLO: RENTABILL
 **Versión:** 3.7.0
 **Fecha:** Octubre 2026  

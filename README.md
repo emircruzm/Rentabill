@@ -192,7 +192,8 @@ De acuerdo con lo detallado en la sección 8 de `docs/ARQUITECTURA.md`:
 3. **Cálculo de métricas financieras en el cliente:** Los cálculos de margen, rotación y salud proyectada se procesan en el hilo principal del dispositivo cliente en `financialMetrics.ts`. En catálogos muy extensos, esto puede provocar impacto en el rendimiento en dispositivos móviles de gama de entrada.
 4. **Alcance de los reportes en pantalla:** La interfaz ofrece una única opción de exportación en la sección de Ajustes para el catálogo de productos con sus ventas y márgenes acumulados (`productos_YYYY-MM-DD.csv`), sin disponer de una descarga independiente ticket por ticket del historial transaccional.
 
-## Enlaces a la Documentación Completa
+## Enlaces a la Documentación
 
-* [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md): Especificación detallada de la arquitectura en capas, patrones de diseño, diagramas de secuencia y contratos de funciones RPC.
-* [informe_tecnico.md](informe_tecnico.md): Informe técnico integral sobre el rediseño estructural, modelo relacional y auditoría de la base de datos.
+* [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md): Documentación técnica y de arquitectura vigente (especificación detallada de capas, patrones de diseño, diagramas de secuencia y contratos de funciones RPC).
+* [informe_tecnico.md](informe_tecnico.md): Informe técnico anterior (histórico).
+
