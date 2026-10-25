@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TrendingUp, Lock, Mail, User, Phone, ArrowRight, Eye, EyeOff, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
-import { supabase } from '../lib/supabase';
+import { authRepository } from '@data/repositories/authRepository';
 import { formatAuthError } from '../lib/authHelpers';
 
 interface AuthViewProps {
@@ -86,10 +86,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
     if (!email.trim()) return;
     try {
       setResendingEmail(true);
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email: email.trim(),
-      });
+      const { error } = await authRepository.resendEmailConfirmation(email.trim());
       if (error) throw error;
       showToast('Correo de confirmación reenviado con éxito', 'success');
     } catch (err: any) {
@@ -107,7 +104,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
 
     try {
       setIsSendingForgot(true);
-      const { error } = await supabase.auth.resetPasswordForEmail(forgotInput.trim());
+      const { error } = await authRepository.resetPasswordForEmail(forgotInput.trim());
       if (error) throw error;
 
       setShowForgotModal(false);

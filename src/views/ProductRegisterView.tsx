@@ -22,7 +22,7 @@ import { useInventory } from '../context/InventoryContext';
 import { SpeedCategory, ProductUnit } from '../types';
 import { executeBarcodeScan } from '../utils/barcodeScanner';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
-import { supabase } from '../lib/supabase';
+import { storageRepository } from '@data/repositories/storageRepository';
 import { formatCurrency } from '../utils/formatters';
 
 export const ProductRegisterView: React.FC = () => {
@@ -139,21 +139,10 @@ export const ProductRegisterView: React.FC = () => {
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: `image/${photo.format || 'jpeg'}` });
 
-      const { data, error } = await supabase.storage
-        .from('product-images')
-        .upload(fileName, blob, {
-          contentType: `image/${photo.format || 'jpeg'}`,
-          upsert: true,
-        });
+      const publicUrl = await storageRepository.uploadFile('product-images', fileName, blob);
 
-      if (error) throw error;
-
-      const { data: publicData } = supabase.storage
-        .from('product-images')
-        .getPublicUrl(fileName);
-
-      if (publicData?.publicUrl) {
-        setImageUrl(publicData.publicUrl);
+      if (publicUrl) {
+        setImageUrl(publicUrl);
         showToast('Foto cargada correctamente', 'success');
       }
     } catch (err: any) {

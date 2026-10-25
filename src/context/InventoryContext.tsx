@@ -29,6 +29,19 @@ import {
 import { formatDatePeru, formatCurrency } from '../utils/formatters';
 import { supabase } from '../lib/supabase';
 import { formatAuthError } from '../lib/authHelpers';
+import { 
+  productsRepository,
+  salesRepository,
+  purchasesRepository,
+  stockRepository,
+  storesRepository,
+  teamRepository,
+  settingsRepository,
+  suppliersRepository,
+  simulationsRepository,
+  authRepository,
+  subscribeToStoreRealtime
+} from '@data/index';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
@@ -322,263 +335,64 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }
 
-      // 2. Fetch Products from product_stats view (Fuente de verdad del status ESTIMADO/REAL)
-      const { data: prodsData, error: prodsErr } = await supabase
-        .from('product_stats')
-        .select('*')
-        .eq('store_id', storeId)
-        .is('archived_at', null)
-        .order('created_at', { ascending: false });
-      
-      if (prodsErr) throw prodsErr;
-
-      const loadedProducts: Product[] = (prodsData || []).map(row => {
-        const catName = row.category_name || (row.category || 'General');
-        return {
-          id: row.id,
-          storeId: row.store_id,
-          categoryId: row.category_id || '',
-          categoryName: catName,
-          category: catName,
-          barcode: row.barcode,
-          name: row.name,
-          unit: row.unit || 'pza',
-          costPrice: Number(row.cost_price),
-          salePrice: Number(row.sale_price),
-          stock: Number(row.stock),
-          reorderPoint: Number(row.reorder_point || 12),
-          estimatedSpeed: row.estimated_speed,
-          unitsSold: Number(row.units_sold || 0),
-          salesCount: Number(row.sales_count || 0),
-          createdDaysAgo: Number(row.created_days_ago || 0),
-          status: row.status,
-          imageUrl: row.image_url,
-          sku: row.sku,
-          createdAt: row.created_at,
-        };
-      });
+      // 2. Fetch Products via productsRepository
+      const loadedProducts = await productsRepository.getByStoreId(storeId);
       setProducts(loadedProducts);
 
-      // 3. Fetch Suppliers
-      const { data: supsData, error: supsErr } = await supabase
-        .from('suppliers')
-        .select('*')
-        .eq('store_id', storeId)
-        .order('name', { ascending: true });
-      
-      if (supsErr) throw supsErr;
-      setSuppliers((supsData || []).map(s => ({
-        id: s.id,
-        name: s.name,
-        paymentCondition: s.payment_condition,
-        creditDays: Number(s.credit_days || 0),
-        contactPhone: s.contact_phone,
-        category: s.category,
-      })));
+      // 3. Fetch Suppliers via suppliersRepository
+      const loadedSuppliers = await suppliersRepository.getByStoreId(storeId);
+      setSuppliers(loadedSuppliers);
 
-      // 4. Fetch Sales with Sale Items
-      const { data: salesData, error: salesErr } = await supabase
-        .from('sales')
-        .select('*, sale_items(*)')
-        .eq('store_id', storeId)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      
-      if (salesErr) throw salesErr;
-      setSales((salesData || []).map(s => ({
-        id: s.id,
-        registerId: s.register_id || '',
-        ticketNumber: s.ticket_number,
-        timestamp: s.created_at,
-        items: (s.sale_items || []).map((si: any) => ({
-          productId: si.product_id,
-          productName: si.product_name,
-          quantity: Number(si.quantity),
-          unitPrice: Number(si.unit_price),
-          unitCost: Number(si.unit_cost),
-          subtotal: Number(si.subtotal),
-          profit: Number(si.profit),
-        })),
-        totalQuantity: Number(s.total_quantity),
-        totalAmount: Number(s.total_amount),
-        totalProfit: Number(s.total_profit),
-        paymentMethod: s.payment_method,
-        cashGiven: s.cash_given ? Number(s.cash_given) : undefined,
-        changeGiven: s.change_given ? Number(s.change_given) : 0,
-        cashierName: s.cashier_name,
-      })));
+      // 4. Fetch Sales via salesRepository
+      const loadedSales = await salesRepository.getByStoreId(storeId, 100);
+      setSales(loadedSales);
 
-      // 5. Fetch Inventory Movements (Kardex)
-      const { data: movsData, error: movsErr } = await supabase
-        .from('inventory_movements')
-        .select('*')
-        .eq('store_id', storeId)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      
-      if (movsErr) throw movsErr;
-      setInventoryMovements((movsData || []).map(m => ({
-        id: m.id,
-        timestamp: m.created_at,
-        type: m.type,
-        productId: m.product_id,
-        productName: m.product_name,
-        quantity: Number(m.quantity),
-        previousStock: Number(m.previous_stock),
-        newStock: Number(m.new_stock),
-        userName: m.user_name,
-        note: m.note,
-        supplierName: m.supplier_name,
-      })));
+      // 5. Fetch Inventory Movements via stockRepository
+      const loadedMovements = await stockRepository.getMovements(storeId, 100);
+      setInventoryMovements(loadedMovements);
 
-      // 6. Fetch Simulations
-      const { data: simsData, error: simsErr } = await supabase
-        .from('simulations')
-        .select('*')
-        .eq('store_id', storeId)
-        .order('created_at', { ascending: false });
-      
-      if (simsErr) throw simsErr;
-      setPastSimulations((simsData || []).map(sim => {
-        const qty = Number(sim.quantity || sim.simulated_quantity || 0);
-        const cost = Number(sim.unit_cost || 0);
-        const total = Number((qty * cost).toFixed(2));
-        const sup = suppliers.find(s => s.id === sim.supplier_id);
-        return {
-          id: sim.id,
-          date: formatDatePeru(sim.created_at),
-          productId: sim.product_id,
-          productName: sim.product_name,
-          simulatedQuantity: qty,
-          unitCost: cost,
-          totalCost: total,
-          supplierId: sim.supplier_id,
-          supplierName: sup ? sup.name : (sim.details?.supplier_name || 'Distribuidor'),
-          paymentCondition: sim.payment_condition,
-          creditDays: Number(sim.credit_days || 0),
-          projectedDailyProfitGain: Number(sim.projected_daily_profit || 0),
-          projectedScoreGain: Number(sim.details?.score_gain || Math.round(Number(sim.projected_daily_profit || 0) * 1.2)),
-          projectedDaysToSell: Number(sim.projected_days_to_sell || 1),
-          verdict: sim.verdict,
-          status: sim.status,
-          purchaseDate: sim.applied_at ? formatDatePeru(sim.applied_at) : undefined,
-          actualDailyProfitGain: sim.actual_daily_profit != null ? Number(sim.actual_daily_profit) : undefined,
-          actualDaysToSell: sim.actual_days_to_sell != null ? Number(sim.actual_days_to_sell) : undefined,
-          actualResultNote: sim.notes || undefined,
-        };
-      }));
+      // 6. Fetch Simulations via simulationsRepository
+      const suppliersMap = Object.fromEntries(loadedSuppliers.map(s => [s.id, s.name]));
+      const loadedSims = await simulationsRepository.getByStoreId(storeId, suppliersMap);
+      setPastSimulations(loadedSims);
 
-      // 6b. Fetch Purchases from purchases (v3.7)
+      // 6b. Fetch Purchases via purchasesRepository
       try {
-        const { data: purData, error: purErr } = await supabase
-          .from('purchases')
-          .select('*, purchase_items(*), suppliers(name)')
-          .eq('store_id', storeId)
-          .order('created_at', { ascending: false });
-
-        if (!purErr && purData) {
-          setPurchases(purData.map((p: any) => ({
-            id: p.id,
-            storeId: p.store_id,
-            supplierId: p.supplier_id,
-            supplierName: p.suppliers?.name || 'Proveedor',
-            paymentCondition: p.payment_condition,
-            creditDays: Number(p.credit_days || 0),
-            dueDate: p.due_date,
-            paidAt: p.paid_at,
-            totalCost: Number(p.total_amount || 0),
-            totalAmount: Number(p.total_amount || 0),
-            createdAt: p.created_at,
-            notes: p.notes,
-            items: (p.purchase_items || []).map((it: any) => ({
-              id: it.id,
-              purchaseId: it.purchase_id,
-              productId: it.product_id,
-              productName: it.product_name,
-              quantity: Number(it.quantity || 0),
-              unitCost: Number(it.unit_cost || 0),
-              subtotal: Number(it.subtotal || 0),
-            })),
-          })));
-        }
+        const loadedPurchases = await purchasesRepository.getByStoreId(storeId);
+        setPurchases(loadedPurchases);
       } catch (err) {
         console.warn('Error al cargar compras:', err);
       }
 
-      // 7. Fetch Team Members via store_members
+      // 7. Fetch Team Members via teamRepository
       try {
-        const { data: membersData, error: membersErr } = await supabase
-          .from('store_members')
-          .select('user_id, role, created_at, profiles(id, name, email, phone, user_code)')
-          .eq('store_id', storeId);
-        
-        if (!membersErr && membersData) {
-          setTeamMembers(membersData.map((m: any) => ({
-            id: m.user_id,
-            name: m.profiles?.name || 'Miembro',
-            contact: m.profiles?.email || m.profiles?.phone || m.profiles?.user_code || m.user_id,
-            role: m.role,
-            addedDate: formatDatePeru(m.created_at),
-            isOwner: m.user_id === storeData?.owner_id,
-          })));
-        }
+        const loadedMembers = await teamRepository.getMembersByStoreId(storeId);
+        setTeamMembers(loadedMembers);
       } catch (err) {
-        console.warn('Error al cargar store_members:', err);
+        console.warn('Error al cargar miembros del equipo:', err);
       }
 
-      // 8. Fetch Invitations from store_invitations (v3.7)
+      // 8. Fetch Invitations via teamRepository
       try {
-        const { data: invsData, error: invsErr } = await supabase
-          .from('store_invitations')
-          .select('*')
-          .eq('store_id', storeId)
-          .order('created_at', { ascending: false });
-        
-        if (!invsErr && invsData) {
-          setInvitations(invsData.map(i => ({
-            id: i.token || i.id,
-            userId: i.email,
-            userName: i.email.split('@')[0],
-            userEmail: i.email,
-            userPhone: '',
-            role: i.role,
-            status: i.status,
-            invitedAt: formatDatePeru(i.created_at),
-            storeName: storeData?.name || 'Mi Tienda',
-            inviterName: 'Administrador',
-          })));
-        }
+        const loadedInvitations = await teamRepository.getInvitationsByStoreId(storeId);
+        setInvitations(loadedInvitations);
       } catch (err) {
         console.warn('Error al cargar invitaciones:', err);
       }
 
-      // 9. Fetch Store Settings and User Preferences (v3.7)
-      const { data: settData } = await supabase
-        .from('store_settings')
-        .select('*')
-        .eq('store_id', storeId)
-        .maybeSingle();
-      
-      let userPref = { darkMode: false, language: 'Español (Sencillo)', dailyReminder: false };
+      // 9. Fetch Store Settings and User Preferences via settingsRepository
+      let currentUserId: string | undefined;
       try {
-        const { data: { user: currentUser } } = await supabase.auth.getUser();
-        if (currentUser) {
-          const { data: prefData } = await supabase
-            .from('user_preferences')
-            .select('*')
-            .eq('user_id', currentUser.id)
-            .maybeSingle();
-          if (prefData) {
-            userPref = {
-              darkMode: Boolean(prefData.dark_mode),
-              language: prefData.language || 'Español (Sencillo)',
-              dailyReminder: false,
-            };
-          }
-        }
-      } catch {
-        // fallback
-      }
+        const { data: { user: currentUser } } = await authRepository.getUser();
+        currentUserId = currentUser?.id;
+      } catch {}
+
+      const { storeSettings: settData, userPreferences: prefData } = await settingsRepository.getSettings(storeId, currentUserId);
+      const userPref = {
+        darkMode: Boolean(prefData?.dark_mode),
+        language: prefData?.language || 'Español (Sencillo)',
+        dailyReminder: false,
+      };
 
       setSettings({
         dailyProfitGoal: Number(settData?.daily_goal_percent ?? 2.0),
@@ -590,58 +404,24 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         language: userPref.language,
       });
 
-      // Reabrir canal Realtime con el nuevo store_id
+      // Reabrir canal Realtime con subscribeToStoreRealtime
       try {
-        if (realtimeChannelRef.current) {
-          supabase.removeChannel(realtimeChannelRef.current);
+        if (typeof realtimeChannelRef.current === 'function') {
+          realtimeChannelRef.current();
           realtimeChannelRef.current = null;
         }
 
-        const channel = supabase
-          .channel(`store_realtime_${storeId}`)
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'products', filter: `store_id=eq.${storeId}` },
-            async () => {
+        const unsubscribe = subscribeToStoreRealtime(storeId, {
+          onProductsChange: async () => {
+            if (activeStoreRequestIdRef.current === reqId) {
+              const freshProducts = await productsRepository.getByStoreId(storeId);
               if (activeStoreRequestIdRef.current === reqId) {
-                const { data: pData } = await supabase
-                  .from('product_stats')
-                  .select('*')
-                  .eq('store_id', storeId)
-                  .is('archived_at', null)
-                  .order('created_at', { ascending: false });
-                if (pData && activeStoreRequestIdRef.current === reqId) {
-                  setProducts(pData.map(row => {
-                    const catName = row.category_name || (row.category || 'General');
-                    return {
-                      id: row.id,
-                      storeId: row.store_id,
-                      categoryId: row.category_id || '',
-                      categoryName: catName,
-                      category: catName,
-                      barcode: row.barcode,
-                      name: row.name,
-                      unit: row.unit || 'pza',
-                      costPrice: Number(row.cost_price),
-                      salePrice: Number(row.sale_price),
-                      stock: Number(row.stock),
-                      reorderPoint: Number(row.reorder_point || 12),
-                      estimatedSpeed: row.estimated_speed,
-                      unitsSold: Number(row.units_sold || 0),
-                      salesCount: Number(row.sales_count || 0),
-                      createdDaysAgo: Number(row.created_days_ago || 0),
-                      status: row.status,
-                      imageUrl: row.image_url,
-                      sku: row.sku,
-                      createdAt: row.created_at,
-                    };
-                  }));
-                }
+                setProducts(freshProducts);
               }
             }
-          )
-          .subscribe();
-        realtimeChannelRef.current = channel;
+          },
+        });
+        realtimeChannelRef.current = unsubscribe;
       } catch (rtErr) {
         console.warn('Realtime subscription error:', rtErr);
       }

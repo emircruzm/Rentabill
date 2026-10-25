@@ -33,7 +33,7 @@ import {
   Upload
 } from 'lucide-react';
 import { Camera as CapacitorCamera, CameraResultType, CameraSource } from '@capacitor/camera';
-import { supabase } from '../lib/supabase';
+import { storageRepository } from '@data/repositories/storageRepository';
 import { useInventory } from '../context/InventoryContext';
 import { UserRole, StoreConfig, TeamInvitation, TeamMember } from '../types';
 import { formatPeruPhoneDisplay } from '../utils/formatters';
@@ -172,21 +172,10 @@ export const AjustesView: React.FC = () => {
       const byteArray = new Uint8Array(byteNumbers);
       const blob = new Blob([byteArray], { type: `image/${photo.format || 'png'}` });
 
-      const { data, error } = await supabase.storage
-        .from('product-images')
-        .upload(fileName, blob, {
-          contentType: `image/${photo.format || 'png'}`,
-          upsert: true,
-        });
+      const publicUrl = await storageRepository.uploadFile('product-images', fileName, blob);
 
-      if (error) throw error;
-
-      const { data: publicData } = supabase.storage
-        .from('product-images')
-        .getPublicUrl(fileName);
-
-      if (publicData?.publicUrl) {
-        await updateStoreInfo({ qrImageUrl: publicData.publicUrl });
+      if (publicUrl) {
+        await updateStoreInfo({ qrImageUrl: publicUrl });
         showToast('Código QR guardado correctamente', 'success');
       }
     } catch (err: any) {
