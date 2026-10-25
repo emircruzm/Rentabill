@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { 
   Store, 
   User, 
@@ -251,16 +251,16 @@ export const AjustesView: React.FC = () => {
       </div>
 
       {/* Banner de Modo de Prueba en Ajustes */}
-      {(user.role !== 'ADMIN' || isTestingRole) && (
+      {isTestingRole && (
         <div className="p-3.5 rounded-2xl bg-amber-400 text-slate-950 flex items-center justify-between gap-2 shadow-xs border border-amber-500">
           <div className="flex items-center gap-2 min-w-0">
             <Eye className="w-5 h-5 text-slate-950 shrink-0" />
             <div className="min-w-0">
               <span className="text-xs font-black block truncate">
-                Probando como {user.role === 'CAJERO' ? 'Cajero' : 'Repositor'}
+                MODO PRUEBA: los cambios NO se guardan
               </span>
               <span className="text-[11px] font-medium text-slate-900 block leading-tight truncate">
-                Viendo la app con permisos restringidos
+                Viendo como {user.role === 'CAJERO' ? 'Cajero' : 'Repositor'} (permisos restringidos)
               </span>
             </div>
           </div>
@@ -796,7 +796,7 @@ export const AjustesView: React.FC = () => {
             </div>
 
             {/* Botón para salir de la prueba */}
-            {(user.role !== 'ADMIN' || isTestingRole) && (
+            {isTestingRole && (
               <div className="pt-2 border-t border-emerald-200/80 flex items-center justify-between">
                 <span className="text-[11px] font-bold text-emerald-950">
                   ⚠️ Viendo como {user.role === 'CAJERO' ? 'Cajero' : 'Repositor'}

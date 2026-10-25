@@ -24,7 +24,9 @@ import { ROLE_INFO } from '@shared/constants/roles';
 import { 
   calculateProductMetrics, 
   calculateGlobalMetrics, 
-  shouldTransitionToReal 
+  shouldTransitionToReal,
+  runWrite,
+  setTestingRoleGlobal
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
 import { supabase } from '@data/supabase/client';
@@ -212,7 +214,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [storeInfo, setStoreInfo] = useState<StoreConfig>(DEFAULT_STORE);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [isTestingRole, setIsTestingRole] = useState<boolean>(false);
+  const [isTestingRole, setIsTestingRoleState] = useState<boolean>(false);
+  const isTestingRoleRef = useRef<boolean>(false);
+
+  const setIsTestingRole = useCallback((val: boolean) => {
+    isTestingRoleRef.current = val;
+    setTestingRoleGlobal(val);
+    setIsTestingRoleState(val);
+  }, []);
 
   const activeUserRef = useRef<string | null>(null);
   const authScreenRef = useRef<AuthScreen>('login');
@@ -481,6 +490,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setLoading(true);
 
       // 1. Limpiar completamente los estados de la tienda previa
+      setIsTestingRole(false);
       setProducts([]);
       setCart([]);
       setSales([]);
@@ -556,40 +566,72 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Crear tienda adicional sin cerrar sesión (Parte B1)
   const createAdditionalStore = useCallback(async (newStore: { name: string; type: StoreConfig['type']; currency?: string; logoUrl?: string }): Promise<string | null> => {
-    try {
-      setLoading(true);
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Creación simulada de tienda ${newStore.name}`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        const simStoreId = `sim-store-${Date.now()}`;
+        const newMembership: UserStoreMembership = {
+          storeId: simStoreId,
+          storeName: newStore.name.trim(),
+          storeType: newStore.type,
+          role: 'ADMIN',
+          isOwner: true,
+          isActive: true,
+        };
+        setUserStores(prev => [newMembership, ...prev.map(s => ({ ...s, isActive: false }))]);
+        setUser(prev => ({ ...prev, storeId: simStoreId, role: 'ADMIN' }));
+        setStoreInfo({
+          id: simStoreId,
+          name: newStore.name.trim(),
+          type: newStore.type,
+          logoUrl: newStore.logoUrl,
+          currency: newStore.currency || 'PEN',
+        });
+        setOnboardingMode('initial');
+        setAuthScreen('authenticated');
+        setActiveTabState('pulso');
+        showToast(`¡Tienda "${newStore.name}" creada en memoria!`, 'success', 'Modo prueba: nada se guardó');
+        return simStoreId;
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
 
-      const { data: rpcData, error: rpcErr } = await supabase.rpc('create_store', {
-        name: newStore.name.trim(),
-        type: newStore.type,
-        currency: newStore.currency || 'PEN',
-      });
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('create_store', {
+            name: newStore.name.trim(),
+            type: newStore.type,
+            currency: newStore.currency || 'PEN',
+          });
 
-      if (rpcErr) throw rpcErr;
+          if (rpcErr) throw rpcErr;
 
-      const createdStoreId: string = typeof rpcData === 'string' ? rpcData : (rpcData?.store_id || rpcData?.id);
-      if (!createdStoreId) {
-        throw new Error('No se recibió el identificador de la nueva tienda.');
+          const createdStoreId: string = typeof rpcData === 'string' ? rpcData : (rpcData?.store_id || rpcData?.id);
+          if (!createdStoreId) {
+            throw new Error('No se recibió el identificador de la nueva tienda.');
+          }
+
+          // Recargar lista y confirmar que la nueva tienda está presente
+          await loadUserStores();
+
+          // Cambiar a la nueva tienda y recargar todos los datos
+          await switchStore(createdStoreId);
+
+          setOnboardingMode('initial');
+          setAuthScreen('authenticated');
+          setActiveTabState('pulso');
+          showToast(`¡Tienda "${newStore.name}" creada!`, 'success', 'Comenzaste con perfil de Administrador');
+          return createdStoreId;
+        } catch (err: any) {
+          console.error('Error creando tienda adicional:', err);
+          showToast('Error al crear tienda', 'alert', err.message || 'No se pudo crear la tienda en Supabase');
+          return null;
+        } finally {
+          setLoading(false);
+        }
       }
-
-      // Recargar lista y confirmar que la nueva tienda está presente
-      await loadUserStores();
-
-      // Cambiar a la nueva tienda y recargar todos los datos
-      await switchStore(createdStoreId);
-
-      setOnboardingMode('initial');
-      setAuthScreen('authenticated');
-      setActiveTabState('pulso');
-      showToast(`¡Tienda "${newStore.name}" creada!`, 'success', 'Comenzaste con perfil de Administrador');
-      return createdStoreId;
-    } catch (err: any) {
-      console.error('Error creando tienda adicional:', err);
-      showToast('Error al crear tienda', 'alert', err.message || 'No se pudo crear la tienda en Supabase');
-      return null;
-    } finally {
-      setLoading(false);
-    }
+    });
   }, [loadUserStores, switchStore, showToast]);
 
   // Initial session check & onAuthStateChange listener
@@ -821,6 +863,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // ONLY reset on explicit logout event
       if (event === 'SIGNED_OUT') {
         if (isMounted) {
+          setIsTestingRole(false);
           activeUserRef.current = null;
           authScreenRef.current = 'login';
           setUser(DEFAULT_USER);
@@ -1096,53 +1139,102 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       });
     };
 
-    try {
-      setLoading(true);
-      let rpcRes = await executeProcessSale(null);
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Cobro simulado de S/ ${total.toFixed(2)} (${cleanPaymentMethod})`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        const simSale: SaleRecord = {
+          id: `sim-sale-${Date.now()}`,
+          ticketNumber,
+          timestamp: new Date().toISOString(),
+          items: cart.map(c => ({
+            productId: c.product.id,
+            productName: c.product.name,
+            quantity: c.quantity,
+            unitPrice: c.product.salePrice,
+            unitCost: c.product.costPrice,
+            subtotal: c.product.salePrice * c.quantity,
+            profit: (c.product.salePrice - c.product.costPrice) * c.quantity,
+          })),
+          totalQuantity: cart.reduce((s, c) => s + c.quantity, 0),
+          totalAmount: total,
+          totalProfit: total - cart.reduce((s, c) => s + c.product.costPrice * c.quantity, 0),
+          paymentMethod: cleanPaymentMethod as any,
+          cashGiven: cleanPaymentMethod === 'efectivo' ? (cashGiven || total) : undefined,
+          changeGiven: change,
+          cashierName: user.name || 'Cajero (Prueba)',
+          registerId: 'caja-simulada',
+        };
 
-      // Si es error 23505 (ticket duplicado), regenerar número y reintentar UNA sola vez
-      if (rpcRes.error && (rpcRes.error.code === '23505' || rpcRes.error.message?.includes('sales_ticket_number_unique') || rpcRes.error.message?.includes('23505') || rpcRes.error.message?.includes('uq_sales_store_ticket'))) {
-        const retryTicket = `TKT-${Date.now().toString().slice(-6)}`;
-        rpcRes = await executeProcessSale(retryTicket);
-      }
+        setProducts(prev => prev.map(p => {
+          const item = cart.find(c => c.product.id === p.id);
+          if (!item) return p;
+          return {
+            ...p,
+            stock: Math.max(0, p.stock - item.quantity),
+            unitsSold: (p.unitsSold || 0) + item.quantity,
+            salesCount: (p.salesCount || 0) + 1,
+          };
+        }));
+        setSales(prev => [simSale, ...prev]);
+        setCart([]);
+        isCheckingOutRef.current = false;
+        showToast(`Cobro simulado por S/ ${total.toFixed(2)}`, 'success', `Vuelto: S/ ${change.toFixed(2)} (${cleanPaymentMethod})`);
+        return { success: true, change };
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          let rpcRes = await executeProcessSale(null);
 
-      if (rpcRes.error) throw rpcRes.error;
-      const data = rpcRes.data;
+          // Si es error 23505 (ticket duplicado), regenerar número y reintentar UNA sola vez
+          if (rpcRes.error && (rpcRes.error.code === '23505' || rpcRes.error.message?.includes('sales_ticket_number_unique') || rpcRes.error.message?.includes('23505') || rpcRes.error.message?.includes('uq_sales_store_ticket'))) {
+            const retryTicket = `TKT-${Date.now().toString().slice(-6)}`;
+            rpcRes = await executeProcessSale(retryTicket);
+          }
 
-      // Check if any product calibrated to REAL
-      if (data?.calibrated_items && data.calibrated_items.length > 0) {
-        const cal = data.calibrated_items[0];
-        const fullProd = products.find(p => p.id === cal.id);
-        if (fullProd) {
-          setCalibrationEvent({
-            product: { ...fullProd, unitsSold: cal.newUnitsSold || cal.newSales, salesCount: cal.newSalesCount || 5, status: 'REAL' },
-            previousSales: fullProd.unitsSold,
-            newSales: cal.newUnitsSold || cal.newSales,
-            newVelocity: cal.newVelocity,
-            isEmpirical: true,
-          });
+          if (rpcRes.error) throw rpcRes.error;
+          const data = rpcRes.data;
+
+          // Check if any product calibrated to REAL
+          if (data?.calibrated_items && data.calibrated_items.length > 0) {
+            const cal = data.calibrated_items[0];
+            const fullProd = products.find(p => p.id === cal.id);
+            if (fullProd) {
+              setCalibrationEvent({
+                product: { ...fullProd, unitsSold: cal.newUnitsSold || cal.newSales, salesCount: cal.newSalesCount || 5, status: 'REAL' },
+                previousSales: fullProd.unitsSold,
+                newSales: cal.newUnitsSold || cal.newSales,
+                newVelocity: cal.newVelocity,
+                isEmpirical: true,
+              });
+            }
+          }
+
+          // Reload fresh store data from Supabase
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          setCart([]);
+
+          showToast(`Cobro exitoso por S/ ${total.toFixed(2)}`, 'success', `Vuelto: S/ ${change.toFixed(2)} (${cleanPaymentMethod})`);
+          return { success: true, change };
+        } catch (err: any) {
+          console.error('Error procesando cobro:', err);
+          // Mapeo estricto de errores
+          if (err?.code === 'P0001' && err?.message) {
+            showToast('Atención', 'alert', err.message);
+          } else {
+            showToast('Error al cobrar', 'alert', 'No pudimos registrar la venta. Intenta de nuevo');
+          }
+          return { success: false, change: 0 };
+        } finally {
+          isCheckingOutRef.current = false;
+          setLoading(false);
         }
       }
-
-      // Reload fresh store data from Supabase
-      await loadStoreData(user.storeId);
-      setCart([]);
-
-      showToast(`Cobro exitoso por S/ ${total.toFixed(2)}`, 'success', `Vuelto: S/ ${change.toFixed(2)} (${cleanPaymentMethod})`);
-      return { success: true, change };
-    } catch (err: any) {
-      console.error('Error procesando cobro:', err);
-      // Mapeo estricto de errores
-      if (err?.code === 'P0001' && err?.message) {
-        showToast('Atención', 'alert', err.message);
-      } else {
-        showToast('Error al cobrar', 'alert', 'No pudimos registrar la venta. Intenta de nuevo');
-      }
-      return { success: false, change: 0 };
-    } finally {
-      isCheckingOutRef.current = false;
-      setLoading(false);
-    }
+    });
   }, [cart, user.storeId, user.name, user.id, sales.length, products, loadStoreData, showToast]);
 
   // Single Quick Sale
@@ -1156,25 +1248,38 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!user.storeId) return;
 
     const ticketNumber = `TKT-${String(100 + sales.length + 1).padStart(5, '0')}`;
-    try {
-      setLoading(true);
-      const { data, error: rpcErr } = await supabase.rpc('process_sale', {
-        p_store_id: user.storeId,
-        p_ticket_number: ticketNumber,
-        p_payment_method: 'efectivo',
-        p_cash_given: product.salePrice,
-        p_items: [{ productId: product.id, quantity: 1 }],
-      });
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Venta rápida simulada: 1 und. de ${product.name}`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setProducts(prev => prev.map(p => p.id === product.id ? { ...p, stock: Math.max(0, p.stock - 1) } : p));
+        showToast(`Venta rápida simulada: 1 und. de ${product.name}`, 'success');
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          const { data, error: rpcErr } = await supabase.rpc('process_sale', {
+            p_store_id: user.storeId,
+            p_ticket_number: ticketNumber,
+            p_payment_method: 'efectivo',
+            p_cash_given: product.salePrice,
+            p_items: [{ productId: product.id, quantity: 1 }],
+          });
 
-      if (rpcErr) throw rpcErr;
-      await loadStoreData(user.storeId);
-      showToast(`Venta rápida: 1 und. de ${product.name}`, 'success');
-    } catch (err: any) {
-      console.error('Error registrando venta rápida:', err);
-      showToast('Error al registrar venta', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+          if (rpcErr) throw rpcErr;
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast(`Venta rápida: 1 und. de ${product.name}`, 'success');
+        } catch (err: any) {
+          console.error('Error registrando venta rápida:', err);
+          showToast('Error al registrar venta', 'alert', err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   }, [products, user.storeId, user.name, user.id, sales.length, loadStoreData, showToast]);
 
   // Add Product to Supabase
@@ -1184,53 +1289,86 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return false;
     }
 
-    try {
-      setLoading(true);
-      const initialStock = Number(productData.stock) || 0;
+    const initialStock = Number(productData.stock) || 0;
 
-      // Buscar category_id de la tienda
-      let targetCategoryId = productData.categoryId;
-      if (!targetCategoryId) {
-        const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
-        const cat = catData?.find((c: any) => c.name.toLowerCase() === (productData.category || 'General').toLowerCase());
-        if (cat) targetCategoryId = cat.id;
-        else if (catData && catData.length > 0) targetCategoryId = catData[0].id;
-      }
-
-      const { data: inserted, error: insertErr } = await supabase
-        .from('products')
-        .insert({
-          store_id: user.storeId,
-          category_id: targetCategoryId,
-          barcode: productData.barcode?.trim() || null,
-          sku: productData.sku?.trim() || null,
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Producto simulado: ${productData.name}`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        const simProd: Product = {
+          id: `sim-prod-${Date.now()}`,
           name: productData.name.trim(),
-          unit: productData.unit || 'pza',
-          cost_price: productData.costPrice,
-          sale_price: productData.salePrice,
+          salePrice: Number(productData.salePrice),
+          costPrice: Number(productData.costPrice),
           stock: initialStock,
-          reorder_point: productData.reorderPoint || 0,
-          estimated_speed: productData.estimatedSpeed || null,
-          units_sold: 0,
-          sales_count: 0,
-          image_url: productData.imageUrl || null,
-        })
-        .select()
-        .single();
+          category: productData.category || 'General',
+          categoryId: productData.categoryId || 'cat-sim',
+          unit: productData.unit || 'pza',
+          estimatedSpeed: productData.estimatedSpeed || 'LENTO',
+          status: 'ESTIMADO',
+          imageUrl: productData.imageUrl,
+          barcode: productData.barcode,
+          sku: productData.sku,
+          unitsSold: 0,
+          salesCount: 0,
+          storeId: user.storeId || '',
+          createdDaysAgo: 0,
+        };
+        setProducts(prev => [simProd, ...prev]);
+        showToast('Producto agregado en memoria', 'success', 'Modo prueba: nada se guardó');
+        setActiveTab('inventario');
+        return true;
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
 
-      if (insertErr) throw insertErr;
+          // Buscar category_id de la tienda
+          let targetCategoryId = productData.categoryId;
+          if (!targetCategoryId) {
+            const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
+            const cat = catData?.find((c: any) => c.name.toLowerCase() === (productData.category || 'General').toLowerCase());
+            if (cat) targetCategoryId = cat.id;
+            else if (catData && catData.length > 0) targetCategoryId = catData[0].id;
+          }
 
-      await loadStoreData(user.storeId);
-      showToast("Producto guardado con ganancia estimada", 'success', "Se confirmará automáticamente al acumular 5 ventas");
-      setActiveTab('inventario');
-      return true;
-    } catch (err: any) {
-      console.error('Error guardando producto:', err);
-      showToast('Error al registrar producto', 'alert', err.message || 'Verifica los datos e intenta nuevamente.');
-      return false;
-    } finally {
-      setLoading(false);
-    }
+          const { error: insertErr } = await supabase
+            .from('products')
+            .insert({
+              store_id: user.storeId,
+              category_id: targetCategoryId,
+              barcode: productData.barcode?.trim() || null,
+              sku: productData.sku?.trim() || null,
+              name: productData.name.trim(),
+              unit: productData.unit || 'pza',
+              cost_price: productData.costPrice,
+              sale_price: productData.salePrice,
+              stock: initialStock,
+              reorder_point: productData.reorderPoint || 0,
+              estimated_speed: productData.estimatedSpeed || null,
+              units_sold: 0,
+              sales_count: 0,
+              image_url: productData.imageUrl || null,
+            });
+
+          if (insertErr) throw insertErr;
+
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast("Producto guardado con ganancia estimada", 'success', "Se confirmará automáticamente al acumular 5 ventas");
+          setActiveTab('inventario');
+          return true;
+        } catch (err: any) {
+          console.error('Error guardando producto:', err);
+          showToast('Error al registrar producto', 'alert', err.message || 'Verifica los datos e intenta nuevamente.');
+          return false;
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   }, [user.storeId, user.name, loadStoreData, showToast, setActiveTab]);
 
   // Update existing Product in Supabase
@@ -1249,208 +1387,329 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return false;
     }
 
-    try {
-      setLoading(true);
-      const prevStock = currentProd.stock;
-      // Si el stock cambió, ejecutar RPC adjust_stock (B7 / C9)
-      if (updates.stock !== undefined && Number(updates.stock) !== prevStock) {
-        const diff = Number((Number(updates.stock) - prevStock).toFixed(3));
-        if (diff !== 0) {
-          const { error: adjErr } = await supabase.rpc('adjust_stock', {
-            p_store_id: user.storeId,
-            p_product_id: productId,
-            p_quantity_delta: diff,
-            p_note: 'Ajuste manual desde edición de producto',
-            p_user_name: user.name || 'Administrador',
-          });
-          if (adjErr) throw adjErr;
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Edición simulada de ${updates.name || currentProd.name}`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setProducts(prev => prev.map(p => {
+          if (p.id !== productId) return p;
+          return {
+            ...p,
+            ...updates,
+            name: updates.name !== undefined ? updates.name.trim() : p.name,
+            stock: updates.stock !== undefined ? Number(updates.stock) : p.stock,
+            salePrice: updates.salePrice !== undefined ? Number(updates.salePrice) : p.salePrice,
+            costPrice: updates.costPrice !== undefined ? Number(updates.costPrice) : p.costPrice,
+          };
+        }));
+        showToast('Producto actualizado en memoria', 'success', 'Modo prueba: nada se guardó');
+        return true;
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          const prevStock = currentProd.stock;
+          // Si el stock cambió, ejecutar RPC adjust_stock (B7 / C9)
+          if (updates.stock !== undefined && Number(updates.stock) !== prevStock) {
+            const diff = Number((Number(updates.stock) - prevStock).toFixed(3));
+            if (diff !== 0) {
+              const { error: adjErr } = await supabase.rpc('adjust_stock', {
+                p_store_id: user.storeId,
+                p_product_id: productId,
+                p_quantity_delta: diff,
+                p_note: 'Ajuste manual desde edición de producto',
+                p_user_name: user.name || 'Administrador',
+              });
+              if (adjErr) throw adjErr;
+            }
+          }
+
+          const dbUpdates: any = {};
+          if (updates.name !== undefined) dbUpdates.name = updates.name.trim();
+          if (updates.barcode !== undefined) dbUpdates.barcode = updates.barcode ? updates.barcode.trim() || null : null;
+          if (updates.sku !== undefined) dbUpdates.sku = updates.sku ? updates.sku.trim() || null : null;
+          if (updates.categoryId !== undefined) {
+            dbUpdates.category_id = updates.categoryId;
+          } else if (updates.category !== undefined) {
+            const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
+            const cat = catData?.find((c: any) => c.name.toLowerCase() === updates.category!.toLowerCase());
+            if (cat) dbUpdates.category_id = cat.id;
+          }
+          if (updates.unit !== undefined) dbUpdates.unit = updates.unit;
+          if (updates.costPrice !== undefined) dbUpdates.cost_price = Number(updates.costPrice);
+          if (updates.salePrice !== undefined) dbUpdates.sale_price = Number(updates.salePrice);
+          if (updates.reorderPoint !== undefined) dbUpdates.reorder_point = Number(updates.reorderPoint);
+          if (updates.estimatedSpeed !== undefined) dbUpdates.estimated_speed = updates.estimatedSpeed;
+          if (updates.imageUrl !== undefined) dbUpdates.image_url = updates.imageUrl || null;
+
+          if (Object.keys(dbUpdates).length > 0) {
+            const { error: updateErr } = await supabase
+              .from('products')
+              .update(dbUpdates)
+              .eq('id', productId)
+              .eq('store_id', user.storeId);
+
+            if (updateErr) throw updateErr;
+          }
+
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast('Producto actualizado correctamente', 'success');
+          return true;
+        } catch (err: any) {
+          console.error('Error actualizando producto:', err);
+          showToast('Error al actualizar producto', 'alert', err.message || 'No se pudieron guardar los cambios');
+          return false;
+        } finally {
+          setLoading(false);
         }
       }
-
-      const dbUpdates: any = {};
-      if (updates.name !== undefined) dbUpdates.name = updates.name.trim();
-      if (updates.barcode !== undefined) dbUpdates.barcode = updates.barcode ? updates.barcode.trim() || null : null;
-      if (updates.sku !== undefined) dbUpdates.sku = updates.sku ? updates.sku.trim() || null : null;
-      if (updates.categoryId !== undefined) {
-        dbUpdates.category_id = updates.categoryId;
-      } else if (updates.category !== undefined) {
-        const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
-        const cat = catData?.find((c: any) => c.name.toLowerCase() === updates.category!.toLowerCase());
-        if (cat) dbUpdates.category_id = cat.id;
-      }
-      if (updates.unit !== undefined) dbUpdates.unit = updates.unit;
-      if (updates.costPrice !== undefined) dbUpdates.cost_price = Number(updates.costPrice);
-      if (updates.salePrice !== undefined) dbUpdates.sale_price = Number(updates.salePrice);
-      if (updates.reorderPoint !== undefined) dbUpdates.reorder_point = Number(updates.reorderPoint);
-      if (updates.estimatedSpeed !== undefined) dbUpdates.estimated_speed = updates.estimatedSpeed;
-      if (updates.imageUrl !== undefined) dbUpdates.image_url = updates.imageUrl || null;
-
-      if (Object.keys(dbUpdates).length > 0) {
-        const { error: updateErr } = await supabase
-          .from('products')
-          .update(dbUpdates)
-          .eq('id', productId)
-          .eq('store_id', user.storeId);
-
-        if (updateErr) throw updateErr;
-      }
-
-      await loadStoreData(user.storeId);
-      showToast('Producto actualizado correctamente', 'success');
-      return true;
-    } catch (err: any) {
-      console.error('Error actualizando producto:', err);
-      showToast('Error al actualizar producto', 'alert', err.message || 'No se pudieron guardar los cambios');
-      return false;
-    } finally {
-      setLoading(false);
-    }
+    });
   }, [user.storeId, user.name, products, loadStoreData, showToast]);
 
   // Delete product from Supabase (Soft delete / Archivar)
   const deleteProduct = useCallback(async (productId: string): Promise<boolean> => {
     if (!user.storeId) return false;
-    try {
-      setLoading(true);
-      const { error: delErr } = await supabase
-        .from('products')
-        .update({ archived_at: new Date().toISOString() })
-        .eq('id', productId)
-        .eq('store_id', user.storeId);
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Producto archivado en simulación',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setProducts(prev => prev.filter(p => p.id !== productId));
+        showToast('Producto archivado en memoria', 'info', 'Modo prueba: nada se guardó');
+        return true;
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          const { error: delErr } = await supabase
+            .from('products')
+            .update({ archived_at: new Date().toISOString() })
+            .eq('id', productId)
+            .eq('store_id', user.storeId);
 
-      if (delErr) throw delErr;
-      await loadStoreData(user.storeId);
-      showToast('Producto archivado del inventario', 'info');
-      return true;
-    } catch (err: any) {
-      console.error('Error archivando producto:', err);
-      showToast('Error al archivar producto', 'alert', err.message);
-      return false;
-    } finally {
-      setLoading(false);
-    }
+          if (delErr) throw delErr;
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast('Producto archivado del inventario', 'info');
+          return true;
+        } catch (err: any) {
+          console.error('Error archivando producto:', err);
+          showToast('Error al archivar producto', 'alert', err.message);
+          return false;
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   }, [user.storeId, loadStoreData, showToast]);
 
   // Inventory adjustment / movement
   const addInventoryMovement = useCallback(async (movementData: Omit<InventoryMovement, 'id' | 'timestamp'>) => {
     if (!user.storeId) return;
 
-    try {
-      setLoading(true);
-      if (movementData.type === 'AJUSTE') {
-        const { error: rpcErr } = await supabase.rpc('adjust_stock', {
-          p_store_id: user.storeId,
-          p_product_id: movementData.productId,
-          p_quantity_delta: movementData.quantity,
-          p_note: movementData.note || 'Ajuste manual de inventario',
-          p_user_name: user.name || movementData.userName,
-        });
-
-        if (rpcErr) {
-          console.error('Error en RPC adjust_stock:', rpcErr);
-          throw rpcErr;
-        }
-      } else {
-        // Inserción directa de otros movimientos
-        const { error: movErr } = await supabase.from('inventory_movements').insert({
-          store_id: user.storeId,
-          product_id: movementData.productId,
-          product_name: movementData.productName,
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Ajuste de inventario simulado',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        const simMovement: InventoryMovement = {
+          id: `sim-mov-${Date.now()}`,
+          timestamp: new Date().toISOString(),
           type: movementData.type,
+          productId: movementData.productId,
+          productName: movementData.productName,
           quantity: movementData.quantity,
-          previous_stock: movementData.previousStock,
-          new_stock: movementData.newStock,
-          user_id: user.id || null,
-          user_name: user.name || movementData.userName,
+          previousStock: movementData.previousStock,
+          newStock: movementData.newStock,
+          userName: user.name || movementData.userName || 'Usuario (Prueba)',
           note: movementData.note,
-          supplier_name: movementData.supplierName,
-        });
-        if (movErr) throw movErr;
+          supplierName: movementData.supplierName,
+        };
+        setInventoryMovements(prev => [simMovement, ...prev]);
+        setProducts(prev => prev.map(p => p.id === movementData.productId ? { ...p, stock: movementData.newStock } : p));
+        showToast(
+          movementData.quantity >= 0 ? "Entrada simulada" : "Salida simulada",
+          'success',
+          `${movementData.productName}: ${movementData.quantity > 0 ? '+' : ''}${movementData.quantity} unids. • Modo prueba: nada se guardó`
+        );
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          if (movementData.type === 'AJUSTE') {
+            const { error: rpcErr } = await supabase.rpc('adjust_stock', {
+              p_store_id: user.storeId,
+              p_product_id: movementData.productId,
+              p_quantity_delta: movementData.quantity,
+              p_note: movementData.note || 'Ajuste manual de inventario',
+              p_user_name: user.name || movementData.userName,
+            });
 
-        await supabase
-          .from('products')
-          .update({ stock: movementData.newStock })
-          .eq('id', movementData.productId);
+            if (rpcErr) {
+              console.error('Error en RPC adjust_stock:', rpcErr);
+              throw rpcErr;
+            }
+          } else {
+            // Inserción directa de otros movimientos
+            const { error: movErr } = await supabase.from('inventory_movements').insert({
+              store_id: user.storeId,
+              product_id: movementData.productId,
+              product_name: movementData.productName,
+              type: movementData.type,
+              quantity: movementData.quantity,
+              previous_stock: movementData.previousStock,
+              new_stock: movementData.newStock,
+              user_id: user.id || null,
+              user_name: user.name || movementData.userName,
+              note: movementData.note,
+              supplier_name: movementData.supplierName,
+            });
+            if (movErr) throw movErr;
+
+            await supabase
+              .from('products')
+              .update({ stock: movementData.newStock })
+              .eq('id', movementData.productId);
+          }
+
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast(
+            movementData.quantity >= 0 ? "Entrada registrada" : "Salida registrada",
+            'success',
+            `${movementData.productName}: ${movementData.quantity > 0 ? '+' : ''}${movementData.quantity} unids.`
+          );
+        } catch (err: any) {
+          console.error('Error registrando movimiento:', err);
+          showToast('Error al registrar movimiento', 'alert', err.message);
+        } finally {
+          setLoading(false);
+        }
       }
-
-      await loadStoreData(user.storeId);
-      showToast(
-        movementData.quantity >= 0 ? "Entrada registrada" : "Salida registrada",
-        'success',
-        `${movementData.productName}: ${movementData.quantity > 0 ? '+' : ''}${movementData.quantity} unids.`
-      );
-    } catch (err: any) {
-      console.error('Error registrando movimiento:', err);
-      showToast('Error al registrar movimiento', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
   }, [user.storeId, user.name, user.id, loadStoreData, showToast]);
 
   // Add Supplier
   const addSupplier = useCallback(async (supplierData: Omit<Supplier, 'id'>) => {
     if (!user.storeId) return;
 
-    try {
-      setLoading(true);
-      const { error: supErr } = await supabase.from('suppliers').insert({
-        store_id: user.storeId,
-        name: supplierData.name,
-        payment_condition: supplierData.paymentCondition,
-        credit_days: supplierData.creditDays || 0,
-        contact_phone: supplierData.contactPhone,
-        category: supplierData.category,
-      });
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Proveedor simulado: ${supplierData.name}`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        const simSupplier: Supplier = {
+          id: `sim-sup-${Date.now()}`,
+          name: supplierData.name,
+          paymentCondition: supplierData.paymentCondition,
+          creditDays: supplierData.creditDays || 0,
+          contactPhone: supplierData.contactPhone,
+          category: supplierData.category,
+        };
+        setSuppliers(prev => [simSupplier, ...prev]);
+        showToast('Proveedor guardado en memoria', 'success', 'Modo prueba: nada se guardó');
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          const { error: supErr } = await supabase.from('suppliers').insert({
+            store_id: user.storeId,
+            name: supplierData.name,
+            payment_condition: supplierData.paymentCondition,
+            credit_days: supplierData.creditDays || 0,
+            contact_phone: supplierData.contactPhone,
+            category: supplierData.category,
+          });
 
-      if (supErr) throw supErr;
-      await loadStoreData(user.storeId);
-      showToast('Proveedor guardado en base de datos', 'success', `${supplierData.name}`);
-    } catch (err: any) {
-      console.error('Error guardando proveedor:', err);
-      showToast('Error al guardar proveedor', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+          if (supErr) throw supErr;
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast('Proveedor guardado en base de datos', 'success', `${supplierData.name}`);
+        } catch (err: any) {
+          console.error('Error guardando proveedor:', err);
+          showToast('Error al guardar proveedor', 'alert', err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   }, [user.storeId, loadStoreData, showToast]);
 
   // Add Simulation (v3.7)
   const addPastSimulation = useCallback(async (simData: Omit<PastSimulation, 'id' | 'date'>) => {
     if (!user.storeId) return;
 
-    try {
-      setLoading(true);
-      const targetProd = products.find(p => p.id === simData.productId);
-      const unitSalePrice = targetProd ? targetProd.salePrice : Number((simData.unitCost * 1.3).toFixed(2));
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Simulación guardada en memoria',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        const sim: PastSimulation = {
+          id: `sim-run-${Date.now()}`,
+          date: new Date().toISOString().split('T')[0],
+          productName: simData.productName,
+          productId: simData.productId,
+          simulatedQuantity: simData.simulatedQuantity,
+          unitCost: simData.unitCost,
+          paymentCondition: simData.paymentCondition,
+          creditDays: simData.creditDays,
+          supplierId: simData.supplierId,
+          supplierName: simData.supplierName,
+          projectedDaysToSell: simData.projectedDaysToSell,
+          projectedDailyProfitGain: simData.projectedDailyProfitGain,
+          projectedScoreGain: simData.projectedScoreGain,
+          totalCost: simData.totalCost,
+          verdict: simData.verdict,
+          status: 'PENDIENTE',
+        };
+        setPastSimulations(prev => [sim, ...prev]);
+        showToast("Simulación guardada en memoria", 'success', "Modo prueba: nada se guardó");
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          const targetProd = products.find(p => p.id === simData.productId);
+          const unitSalePrice = targetProd ? targetProd.salePrice : Number((simData.unitCost * 1.3).toFixed(2));
 
-      const { error: simErr } = await supabase.from('simulations').insert({
-        store_id: user.storeId,
-        product_id: simData.productId || null,
-        product_name: simData.productName,
-        supplier_id: simData.supplierId || null,
-        quantity: simData.simulatedQuantity,
-        unit_cost: simData.unitCost,
-        unit_price: unitSalePrice,
-        payment_condition: simData.paymentCondition,
-        credit_days: simData.paymentCondition === 'credito' ? (simData.creditDays || 0) : 0,
-        projected_days_to_sell: Math.max(0.1, Number(simData.projectedDaysToSell)),
-        projected_daily_profit: Number(simData.projectedDailyProfitGain),
-        verdict: simData.verdict || 'CONVIENE',
-        details: {
-          supplier_name: simData.supplierName,
-          score_gain: simData.projectedScoreGain,
-          total_cost: simData.totalCost,
-        },
-      });
+          const { error: simErr } = await supabase.from('simulations').insert({
+            store_id: user.storeId,
+            product_id: simData.productId || null,
+            product_name: simData.productName,
+            supplier_id: simData.supplierId || null,
+            quantity: simData.simulatedQuantity,
+            unit_cost: simData.unitCost,
+            unit_price: unitSalePrice,
+            payment_condition: simData.paymentCondition,
+            credit_days: simData.paymentCondition === 'credito' ? (simData.creditDays || 0) : 0,
+            projected_days_to_sell: Math.max(0.1, Number(simData.projectedDaysToSell)),
+            projected_daily_profit: Number(simData.projectedDailyProfitGain),
+            verdict: simData.verdict || 'CONVIENE',
+            details: {
+              supplier_name: simData.supplierName,
+              score_gain: simData.projectedScoreGain,
+              total_cost: simData.totalCost,
+            },
+          });
 
-      if (simErr) throw simErr;
-      await loadStoreData(user.storeId);
-      showToast("Simulación guardada en tu Historial", 'success', "Podrás comparar lo proyectado contra los resultados reales.");
-    } catch (err: any) {
-      console.error('Error guardando simulación:', err);
-      showToast('Error al guardar simulación', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+          if (simErr) throw simErr;
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast("Simulación guardada en tu Historial", 'success', "Podrás comparar lo proyectado contra los resultados reales.");
+        } catch (err: any) {
+          console.error('Error guardando simulación:', err);
+          showToast('Error al guardar simulación', 'alert', err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   }, [user.storeId, products, loadStoreData, showToast]);
 
   // Confirm Purchase from Simulator via process_purchase (v3.7)
@@ -1459,61 +1718,86 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const sim = pastSimulations.find(s => s.id === simulationId);
     if (!sim) return;
 
-    try {
-      setLoading(true);
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Compra simulada: ${sim.simulatedQuantity} und. de ${sim.productName}`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setProducts(prev => prev.map(p => p.id === sim.productId ? { ...p, stock: p.stock + sim.simulatedQuantity } : p));
+        showToast("¡Compra simulada en inventario!", 'success', `Se sumaron ${sim.simulatedQuantity} unidades de ${sim.productName} • Modo prueba: nada se guardó`);
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
 
-      const itemsPayload = [{
-        product_id: sim.productId,
-        quantity: sim.simulatedQuantity,
-        unit_cost: sim.unitCost
-      }];
+          const itemsPayload = [{
+            product_id: sim.productId,
+            quantity: sim.simulatedQuantity,
+            unit_cost: sim.unitCost
+          }];
 
-      const { data: purchData, error: rpcErr } = await supabase.rpc('process_purchase', {
-        p_store_id: user.storeId,
-        p_supplier_id: sim.supplierId || null,
-        p_items: itemsPayload,
-        p_note: `Compra ejecutada desde Simulador (${sim.paymentCondition})`,
-        p_payment_condition: sim.paymentCondition,
-        p_credit_days: sim.paymentCondition === 'credito' ? (sim.creditDays || 0) : 0,
-        p_simulation_ids: [simulationId],
-      });
+          const { error: rpcErr } = await supabase.rpc('process_purchase', {
+            p_store_id: user.storeId,
+            p_supplier_id: sim.supplierId || null,
+            p_items: itemsPayload,
+            p_note: `Compra ejecutada desde Simulador (${sim.paymentCondition})`,
+            p_payment_condition: sim.paymentCondition,
+            p_credit_days: sim.paymentCondition === 'credito' ? (sim.creditDays || 0) : 0,
+            p_simulation_ids: [simulationId],
+          });
 
-      if (rpcErr) throw rpcErr;
+          if (rpcErr) throw rpcErr;
 
-      await loadStoreData(user.storeId);
-      showToast("¡Compra registrada en inventario!", 'success', `Se sumaron ${sim.simulatedQuantity} unidades de ${sim.productName}`);
-    } catch (err: any) {
-      console.error('Error confirmando compra:', err);
-      showToast('Error al registrar compra', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast("¡Compra registrada en inventario!", 'success', `Se sumaron ${sim.simulatedQuantity} unidades de ${sim.productName}`);
+        } catch (err: any) {
+          console.error('Error confirmando compra:', err);
+          showToast('Error al registrar compra', 'alert', err.message);
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
   }, [user.storeId, pastSimulations, loadStoreData, showToast]);
 
   // Pay Purchase via pay_purchase RPC (v3.7)
   const payPurchase = useCallback(async (purchaseId: string) => {
     if (!user.storeId) return;
-    try {
-      setLoading(true);
-      const { data, error } = await supabase.rpc('pay_purchase', {
-        p_store_id: user.storeId,
-        p_purchase_id: purchaseId,
-      });
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Pago de compra simulado',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        showToast('Pago simulado correctamente', 'success', 'Modo prueba: nada se guardó');
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          const { data, error } = await supabase.rpc('pay_purchase', {
+            p_store_id: user.storeId,
+            p_purchase_id: purchaseId,
+          });
 
-      if (error) throw error;
-      if (data && data.success === false && data.error === 'ya_pagada') {
-        showToast('Esta compra ya estaba marcada como pagada', 'info');
-        return;
+          if (error) throw error;
+          if (data && data.success === false && data.error === 'ya_pagada') {
+            showToast('Esta compra ya estaba marcada como pagada', 'info');
+            return;
+          }
+
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast('Pago registrado correctamente', 'success');
+        } catch (err: any) {
+          console.error('Error pagando compra:', err);
+          showToast('Error al registrar pago', 'alert', err.message);
+        } finally {
+          setLoading(false);
+        }
       }
-
-      await loadStoreData(user.storeId);
-      showToast('Pago registrado correctamente', 'success');
-    } catch (err: any) {
-      console.error('Error pagando compra:', err);
-      showToast('Error al registrar pago', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
   }, [user.storeId, loadStoreData, showToast]);
 
   const getRealProductVelocity = useCallback((productId: string) => {
@@ -1905,53 +2189,76 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const logout = useCallback(async () => {
     setShowLogoutModal(false);
+    setIsTestingRole(false);
     await supabase.auth.signOut();
     setAuthScreen('login');
     showToast('Sesión cerrada', 'info', 'Vuelve pronto');
-  }, [showToast]);
+  }, [showToast, setIsTestingRole]);
 
   const updateProfile = useCallback(async (updates: Partial<UserProfile>) => {
-    try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) return;
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Actualización de perfil simulada',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setUser(prev => ({ ...prev, ...updates }));
+        showToast('Perfil actualizado en memoria', 'success', 'Modo prueba: nada se guardó');
+      },
+      onRealWrite: async () => {
+        try {
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          if (!authUser) return;
 
-      const dbUpdates: any = {};
-      if (updates.name) dbUpdates.name = updates.name;
-      if (updates.emailOrPhone) dbUpdates.email = updates.emailOrPhone;
-      if (updates.phone) dbUpdates.phone = updates.phone;
-      if (updates.avatar) dbUpdates.avatar = updates.avatar;
+          const dbUpdates: any = {};
+          if (updates.name) dbUpdates.name = updates.name;
+          if (updates.emailOrPhone) dbUpdates.email = updates.emailOrPhone;
+          if (updates.phone) dbUpdates.phone = updates.phone;
+          if (updates.avatar) dbUpdates.avatar = updates.avatar;
 
-      const { error: err } = await supabase.from('profiles').update(dbUpdates).eq('id', authUser.id);
-      if (err) throw err;
+          const { error: err } = await supabase.from('profiles').update(dbUpdates).eq('id', authUser.id);
+          if (err) throw err;
 
-      setUser(prev => ({ ...prev, ...updates }));
-      showToast('Perfil actualizado correctamente', 'success');
-    } catch (err: any) {
-      console.error('Error actualizando perfil:', err);
-      showToast('Error al actualizar perfil', 'alert', err.message);
-    }
+          setUser(prev => ({ ...prev, ...updates }));
+          showToast('Perfil actualizado correctamente', 'success');
+        } catch (err: any) {
+          console.error('Error actualizando perfil:', err);
+          showToast('Error al actualizar perfil', 'alert', err.message);
+        }
+      }
+    });
   }, [showToast]);
 
   const updateStoreInfo = useCallback(async (updates: Partial<StoreConfig>) => {
     if (!user.storeId) return;
 
-    try {
-      const dbUpdates: any = {};
-      if (updates.name !== undefined) dbUpdates.name = updates.name;
-      if (updates.type !== undefined) dbUpdates.type = updates.type;
-      if (updates.logoUrl !== undefined) dbUpdates.logo_url = updates.logoUrl || null;
-      if (updates.qrImageUrl !== undefined) dbUpdates.qr_image_url = updates.qrImageUrl || null;
-      if (updates.currency !== undefined) dbUpdates.currency = updates.currency;
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Actualización de negocio simulada',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setStoreInfo(prev => ({ ...prev, ...updates }));
+        showToast('Datos del negocio guardados en memoria', 'success', 'Modo prueba: nada se guardó');
+      },
+      onRealWrite: async () => {
+        try {
+          const dbUpdates: any = {};
+          if (updates.name !== undefined) dbUpdates.name = updates.name;
+          if (updates.type !== undefined) dbUpdates.type = updates.type;
+          if (updates.logoUrl !== undefined) dbUpdates.logo_url = updates.logoUrl || null;
+          if (updates.qrImageUrl !== undefined) dbUpdates.qr_image_url = updates.qrImageUrl || null;
+          if (updates.currency !== undefined) dbUpdates.currency = updates.currency;
 
-      const { error: err } = await supabase.from('stores').update(dbUpdates).eq('id', user.storeId);
-      if (err) throw err;
+          const { error: err } = await supabase.from('stores').update(dbUpdates).eq('id', user.storeId);
+          if (err) throw err;
 
-      setStoreInfo(prev => ({ ...prev, ...updates }));
-      showToast('Datos del negocio guardados en Supabase', 'success');
-    } catch (err: any) {
-      console.error('Error actualizando tienda:', err);
-      showToast('Error al actualizar datos del negocio', 'alert', err.message);
-    }
+          setStoreInfo(prev => ({ ...prev, ...updates }));
+          showToast('Datos del negocio guardados en Supabase', 'success');
+        } catch (err: any) {
+          console.error('Error actualizando tienda:', err);
+          showToast('Error al actualizar datos del negocio', 'alert', err.message);
+        }
+      }
+    });
   }, [user.storeId, showToast]);
 
   const addTeamMember = useCallback((memberData: Omit<TeamMember, 'id' | 'addedDate'>) => {
@@ -1982,38 +2289,49 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     }
 
-    try {
-      setLoading(true);
-      const { error: rpcErr } = await supabase.rpc('change_member_role', {
-        p_target_user_id: memberId,
-        p_new_role: role
-      });
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Cambio de rol de miembro simulado',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setTeamMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m));
+        showToast(`Rol actualizado a ${ROLE_INFO[role]?.name || role} (memoria)`, 'success', `${targetMember?.name || 'Miembro'} • Modo prueba: nada se guardó`);
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          const { error: rpcErr } = await supabase.rpc('change_member_role', {
+            p_target_user_id: memberId,
+            p_new_role: role
+          });
 
-      if (rpcErr) {
-        console.warn('RPC change_member_role fallback:', rpcErr);
-        const { error: err } = await supabase
-          .from('store_members')
-          .update({ role })
-          .eq('store_id', user.storeId)
-          .eq('user_id', memberId);
-        if (err) throw err;
+          if (rpcErr) {
+            console.warn('RPC change_member_role fallback:', rpcErr);
+            const { error: err } = await supabase
+              .from('store_members')
+              .update({ role })
+              .eq('store_id', user.storeId)
+              .eq('user_id', memberId);
+            if (err) throw err;
+          }
+
+          setTeamMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m));
+
+          // Si el miembro editado es el usuario actual, actualizar rol en caliente
+          if (memberId === user.id) {
+            setUser(prev => ({ ...prev, role }));
+            if (role === 'CAJERO') setActiveTabState('vender');
+            else if (role === 'REPOSITOR') setActiveTabState('inventario');
+          }
+
+          showToast(`Rol actualizado a ${ROLE_INFO[role]?.name || role}`, 'success', `${targetMember?.name || 'Miembro'}`);
+        } catch (err: any) {
+          showToast('Error actualizando rol', 'alert', err.message);
+        } finally {
+          setLoading(false);
+        }
       }
-
-      setTeamMembers(prev => prev.map(m => m.id === memberId ? { ...m, role } : m));
-
-      // Si el miembro editado es el usuario actual, actualizar rol en caliente
-      if (memberId === user.id) {
-        setUser(prev => ({ ...prev, role }));
-        if (role === 'CAJERO') setActiveTabState('vender');
-        else if (role === 'REPOSITOR') setActiveTabState('inventario');
-      }
-
-      showToast(`Rol actualizado a ${ROLE_INFO[role]?.name || role}`, 'success', `${targetMember?.name || 'Miembro'}`);
-    } catch (err: any) {
-      showToast('Error actualizando rol', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
   }, [user.storeId, user.id, teamMembers, storeInfo.ownerId, showToast]);
 
   const removeTeamMember = useCallback(async (memberId: string) => {
@@ -2039,33 +2357,44 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     }
 
-    try {
-      setLoading(true);
-      const { error: rpcErr } = await supabase.rpc('remove_member', {
-        p_target_user_id: memberId
-      });
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Miembro removido en simulación',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setTeamMembers(prev => prev.filter(m => m.id !== memberId));
+        showToast('Acceso revocado en memoria', 'info', `${targetMember?.name || 'El empleado'} fue removido de la lista • Modo prueba: nada se guardó`);
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
+          const { error: rpcErr } = await supabase.rpc('remove_member', {
+            p_target_user_id: memberId
+          });
 
-      if (rpcErr) {
-        console.warn('RPC remove_member fallback:', rpcErr);
-        const { error: err } = await supabase
-          .from('store_members')
-          .delete()
-          .eq('store_id', user.storeId)
-          .eq('user_id', memberId);
-        if (err) throw err;
-      }
+          if (rpcErr) {
+            console.warn('RPC remove_member fallback:', rpcErr);
+            const { error: err } = await supabase
+              .from('store_members')
+              .delete()
+              .eq('store_id', user.storeId)
+              .eq('user_id', memberId);
+            if (err) throw err;
+          }
 
-      setTeamMembers(prev => prev.filter(m => m.id !== memberId));
-      if (user.storeId) {
-        await loadStoreData(user.storeId);
+          setTeamMembers(prev => prev.filter(m => m.id !== memberId));
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          showToast('Acceso revocado', 'info', `${targetMember?.name || 'El empleado'} ya no tiene acceso al negocio.`);
+        } catch (err: any) {
+          console.error('Error revocando acceso:', err);
+          showToast('Error revocando acceso', 'alert', err.message);
+        } finally {
+          setLoading(false);
+        }
       }
-      showToast('Acceso revocado', 'info', `${targetMember?.name || 'El empleado'} ya no tiene acceso al negocio.`);
-    } catch (err: any) {
-      console.error('Error revocando acceso:', err);
-      showToast('Error revocando acceso', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
   }, [user.storeId, teamMembers, storeInfo.ownerId, loadStoreData, showToast]);
 
   const setUserRole = useCallback((newRole: UserRole) => {
@@ -2082,45 +2411,56 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } else {
       setActiveTabState('ajustes');
     }
-  }, []);
+  }, [setIsTestingRole]);
 
   const exitRoleTest = useCallback(() => {
     setIsTestingRole(false);
     setUser(prev => ({ ...prev, role: 'ADMIN' }));
     setActiveTabState('ajustes');
     showToast('Prueba finalizada', 'success', 'Regresaste a tu perfil de Administrador');
-  }, [showToast]);
+  }, [showToast, setIsTestingRole]);
 
   const updateSettings = useCallback(async (newSettings: Partial<AppSettings>) => {
     if (!user.storeId) return;
 
-    try {
-      const dbStoreUpdates: any = {};
-      if (newSettings.dailyProfitGoal !== undefined) dbStoreUpdates.daily_goal_percent = newSettings.dailyProfitGoal;
-      if (newSettings.warnSlowDays !== undefined) dbStoreUpdates.warn_slow_days = newSettings.warnSlowDays;
-      if (newSettings.warnLowStock !== undefined) dbStoreUpdates.warn_low_stock = newSettings.warnLowStock;
-      if (newSettings.autoBackup !== undefined) dbStoreUpdates.auto_backup = newSettings.autoBackup;
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Ajustes actualizados en simulación',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setSettings(prev => ({ ...prev, ...newSettings }));
+        showToast('Preferencias actualizadas en memoria', 'success', 'Modo prueba: nada se guardó');
+      },
+      onRealWrite: async () => {
+        try {
+          const dbStoreUpdates: any = {};
+          if (newSettings.dailyProfitGoal !== undefined) dbStoreUpdates.daily_goal_percent = newSettings.dailyProfitGoal;
+          if (newSettings.warnSlowDays !== undefined) dbStoreUpdates.warn_slow_days = newSettings.warnSlowDays;
+          if (newSettings.warnLowStock !== undefined) dbStoreUpdates.warn_low_stock = newSettings.warnLowStock;
+          if (newSettings.autoBackup !== undefined) dbStoreUpdates.auto_backup = newSettings.autoBackup;
 
-      if (Object.keys(dbStoreUpdates).length > 0) {
-        await supabase.from('store_settings').upsert({
-          store_id: user.storeId,
-          ...dbStoreUpdates,
-        });
+          if (Object.keys(dbStoreUpdates).length > 0) {
+            await supabase.from('store_settings').upsert({
+              store_id: user.storeId,
+              ...dbStoreUpdates,
+            });
+          }
+
+          // Desacoplar user_preferences (por usuario): dark_mode, language
+          if (user.id && (newSettings.darkMode !== undefined || newSettings.language !== undefined)) {
+            const prefUpdates: any = { user_id: user.id };
+            if (newSettings.darkMode !== undefined) prefUpdates.dark_mode = newSettings.darkMode;
+            if (newSettings.language !== undefined) prefUpdates.language = newSettings.language;
+            await supabase.from('user_preferences').upsert(prefUpdates);
+          }
+
+          setSettings(prev => ({ ...prev, ...newSettings }));
+          showToast('Preferencias actualizadas', 'success');
+        } catch (err: any) {
+          showToast('Error guardando preferencias', 'alert', err.message);
+        }
       }
-
-      // Desacoplar user_preferences (por usuario): dark_mode, language
-      if (user.id && (newSettings.darkMode !== undefined || newSettings.language !== undefined)) {
-        const prefUpdates: any = { user_id: user.id };
-        if (newSettings.darkMode !== undefined) prefUpdates.dark_mode = newSettings.darkMode;
-        if (newSettings.language !== undefined) prefUpdates.language = newSettings.language;
-        await supabase.from('user_preferences').upsert(prefUpdates);
-      }
-
-      setSettings(prev => ({ ...prev, ...newSettings }));
-      showToast('Preferencias actualizadas', 'success');
-    } catch (err: any) {
-      showToast('Error guardando preferencias', 'alert', err.message);
-    }
+    });
   }, [user.storeId, user.id, showToast]);
 
   const switchActiveRegister = useCallback(async (register: string) => {
@@ -2230,50 +2570,90 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return { success: false, error: 'Sin tienda' };
     }
 
-    try {
-      const cleanCode = targetCode.trim().toUpperCase();
-      const { data: rpcRes, error: rpcErr } = await supabase.rpc('invite_by_code', {
-        p_store_id: user.storeId,
-        p_user_code: cleanCode,
-        p_role: assignedRole,
-      });
+    return await runWrite<{ success: boolean; error?: string }>({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Invitación simulada a ${targetCode}`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        const cleanCode = targetCode.trim().toUpperCase();
+        const simInvitation: TeamInvitation = {
+          id: `sim-inv-${Date.now()}`,
+          userId: cleanCode,
+          userName: `Usuario ${cleanCode}`,
+          userEmail: `${cleanCode.toLowerCase()}@ejemplo.com`,
+          userPhone: '',
+          role: assignedRole,
+          status: 'PENDIENTE',
+          invitedAt: 'Hoy',
+          storeName: storeInfo.name || 'Mi Tienda',
+          inviterName: user.name || 'Administrador',
+        };
+        setInvitations(prev => [simInvitation, ...prev]);
+        setShowInviteModal(false);
+        showToast(`¡Invitación simulada a ${cleanCode}!`, 'success', `Rol: ${ROLE_INFO[assignedRole].name} • Modo prueba: nada se guardó`);
+        return { success: true };
+      },
+      onRealWrite: async () => {
+        try {
+          const cleanCode = targetCode.trim().toUpperCase();
+          const { data: rpcRes, error: rpcErr } = await supabase.rpc('invite_by_code', {
+            p_store_id: user.storeId,
+            p_user_code: cleanCode,
+            p_role: assignedRole,
+          });
 
-      if (rpcErr) throw rpcErr;
+          if (rpcErr) throw rpcErr;
 
-      if (rpcRes && rpcRes.success === false) {
-        if (rpcRes.error === 'ya_es_miembro') {
-          showToast('El usuario ya es miembro de esta tienda', 'alert');
-          return { success: false, error: 'ya_es_miembro' };
+          if (rpcRes && rpcRes.success === false) {
+            if (rpcRes.error === 'ya_es_miembro') {
+              showToast('El usuario ya es miembro de esta tienda', 'alert');
+              return { success: false, error: 'ya_es_miembro' };
+            }
+            if (rpcRes.error === 'invitacion_pendiente') {
+              showToast('Ya existe una invitación pendiente para este usuario', 'alert');
+              return { success: false, error: 'invitacion_pendiente' };
+            }
+            showToast(`No se pudo invitar: ${rpcRes.error}`, 'alert');
+            return { success: false, error: rpcRes.error };
+          }
+
+          setShowInviteModal(false);
+          if (user.storeId) {
+            await loadStoreData(user.storeId);
+          }
+          const targetName = rpcRes?.invited_name || cleanCode;
+          showToast(`¡Invitaste a ${targetName}!`, 'success', `Rol asignado: ${ROLE_INFO[assignedRole].name}`);
+          return { success: true };
+        } catch (err: any) {
+          console.error('Error enviando invitación:', err);
+          showToast('Error al enviar invitación', 'alert', err.message);
+          return { success: false, error: err.message };
         }
-        if (rpcRes.error === 'invitacion_pendiente') {
-          showToast('Ya existe una invitación pendiente para este usuario', 'alert');
-          return { success: false, error: 'invitacion_pendiente' };
-        }
-        showToast(`No se pudo invitar: ${rpcRes.error}`, 'alert');
-        return { success: false, error: rpcRes.error };
       }
-
-      setShowInviteModal(false);
-      await loadStoreData(user.storeId);
-      const targetName = rpcRes?.invited_name || cleanCode;
-      showToast(`¡Invitaste a ${targetName}!`, 'success', `Rol asignado: ${ROLE_INFO[assignedRole].name}`);
-      return { success: true };
-    } catch (err: any) {
-      console.error('Error enviando invitación:', err);
-      showToast('Error al enviar invitación', 'alert', err.message);
-      return { success: false, error: err.message };
-    }
-  }, [user.storeId, loadStoreData, showToast]);
+    });
+  }, [user.storeId, user.name, storeInfo.name, loadStoreData, showToast]);
 
   const cancelInvitation = useCallback(async (invitationId: string) => {
-    try {
-      await supabase.from('store_invitations').delete().eq('id', invitationId);
-      setInvitations(prev => prev.filter(inv => inv.id !== invitationId));
-      setIncomingInvitation(prev => (prev?.id === invitationId ? null : prev));
-      showToast('Invitación cancelada', 'info');
-    } catch (err: any) {
-      showToast('Error al cancelar invitación', 'alert', err.message);
-    }
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Cancelación de invitación simulada',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setInvitations(prev => prev.filter(inv => inv.id !== invitationId));
+        setIncomingInvitation(prev => (prev?.id === invitationId ? null : prev));
+        showToast('Invitación cancelada en memoria', 'info', 'Modo prueba: nada se guardó');
+      },
+      onRealWrite: async () => {
+        try {
+          await supabase.from('store_invitations').delete().eq('id', invitationId);
+          setInvitations(prev => prev.filter(inv => inv.id !== invitationId));
+          setIncomingInvitation(prev => (prev?.id === invitationId ? null : prev));
+          showToast('Invitación cancelada', 'info');
+        } catch (err: any) {
+          showToast('Error al cancelar invitación', 'alert', err.message);
+        }
+      }
+    });
   }, [showToast]);
 
   const copyInvitation = useCallback((invitationId: string) => {
@@ -2288,68 +2668,92 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [invitations, showToast]);
 
   const acceptInvitation = useCallback(async (invitationIdOrToken: string) => {
-    try {
-      setLoading(true);
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Aceptación de invitación simulada',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setIncomingInvitation(null);
+        setShowInvitationConfirmModal(false);
+        showToast('Invitación aceptada en memoria', 'success', 'Modo prueba: nada se guardó');
+      },
+      onRealWrite: async () => {
+        try {
+          setLoading(true);
 
-      // 1. Intentar RPC accept_invitation con token
-      const { data: accRes, error: accErr } = await supabase.rpc('accept_invitation', {
-        p_token: invitationIdOrToken,
-      });
+          // 1. Intentar RPC accept_invitation con token
+          const { data: accRes, error: accErr } = await supabase.rpc('accept_invitation', {
+            p_token: invitationIdOrToken,
+          });
 
-      if (!accErr && accRes) {
-        if (accRes.success === false && accRes.error === 'expirada') {
-          showToast('Invitación expirada', 'alert', 'La invitación ha vencido y ya no puede ser aceptada.');
-          setIncomingInvitation(null);
-          setShowInvitationConfirmModal(false);
-          return;
-        }
-        if (accRes.success && accRes.store_id) {
-          await switchStore(accRes.store_id);
+          if (!accErr && accRes) {
+            if (accRes.success === false && accRes.error === 'expirada') {
+              showToast('Invitación expirada', 'alert', 'La invitación ha vencido y ya no puede ser aceptada.');
+              setIncomingInvitation(null);
+              setShowInvitationConfirmModal(false);
+              return;
+            }
+            if (accRes.success && accRes.store_id) {
+              await switchStore(accRes.store_id);
+              setIncomingInvitation(null);
+              setShowInvitationConfirmModal(false);
+              showToast('¡Invitación aceptada con éxito!', 'success', 'Te has unido al equipo del negocio.');
+              return;
+            }
+          }
+
+          // 2. Fallback a respond_invitation si es ID
+          const { data: rpcRes, error: rpcErr } = await supabase.rpc('respond_invitation', {
+            p_invitation_id: invitationIdOrToken,
+            p_accept: true
+          });
+
+          if (rpcErr) throw rpcErr;
+
+          const targetStoreId = rpcRes?.store_id;
+          if (targetStoreId) {
+            await switchStore(targetStoreId);
+          }
+
           setIncomingInvitation(null);
           setShowInvitationConfirmModal(false);
           showToast('¡Invitación aceptada con éxito!', 'success', 'Te has unido al equipo del negocio.');
-          return;
+        } catch (err: any) {
+          showToast('Error aceptando invitación', 'alert', err.message);
+        } finally {
+          setLoading(false);
         }
       }
-
-      // 2. Fallback a respond_invitation si es ID
-      const { data: rpcRes, error: rpcErr } = await supabase.rpc('respond_invitation', {
-        p_invitation_id: invitationIdOrToken,
-        p_accept: true
-      });
-
-      if (rpcErr) throw rpcErr;
-
-      const targetStoreId = rpcRes?.store_id;
-      if (targetStoreId) {
-        await switchStore(targetStoreId);
-      }
-
-      setIncomingInvitation(null);
-      setShowInvitationConfirmModal(false);
-      showToast('¡Invitación aceptada con éxito!', 'success', 'Te has unido al equipo del negocio.');
-    } catch (err: any) {
-      showToast('Error aceptando invitación', 'alert', err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
   }, [switchStore, showToast]);
 
   const rejectInvitation = useCallback(async (invitationId: string) => {
-    try {
-      const { error: rpcErr } = await supabase.rpc('respond_invitation', {
-        p_invitation_id: invitationId,
-        p_accept: false
-      });
+    return await runWrite({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: 'Rechazo de invitación simulado',
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        setIncomingInvitation(null);
+        setShowInvitationConfirmModal(false);
+        showToast('Invitación rechazada en memoria', 'info', 'Modo prueba: nada se guardó');
+      },
+      onRealWrite: async () => {
+        try {
+          const { error: rpcErr } = await supabase.rpc('respond_invitation', {
+            p_invitation_id: invitationId,
+            p_accept: false
+          });
 
-      if (rpcErr) throw rpcErr;
+          if (rpcErr) throw rpcErr;
 
-      setIncomingInvitation(null);
-      setShowInvitationConfirmModal(false);
-      showToast('Invitación rechazada', 'info');
-    } catch (err: any) {
-      showToast('Error al rechazar invitación', 'alert', err.message);
-    }
+          setIncomingInvitation(null);
+          setShowInvitationConfirmModal(false);
+          showToast('Invitación rechazada', 'info');
+        } catch (err: any) {
+          showToast('Error al rechazar invitación', 'alert', err.message);
+        }
+      }
+    });
   }, [showToast]);
 
   const skipOnboardingForInvitation = useCallback(() => {

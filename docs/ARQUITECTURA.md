@@ -231,6 +231,7 @@ src/
 │   ├── logic/                    # LÓGICA DE NEGOCIO (sin React ni BD)
 │   │   ├── financialMetrics.ts   # Margen, velocidad, salud proyectada, calibración
 │   │   ├── simulationEngine.ts   # Retorno de inversión y veredictos del simulador
+│   │   ├── writeGuard.ts         # Guardia de escritura y simulación para modo prueba
 │   │   └── index.ts
 │   ├── use-cases/                # CASOS DE USO ATÓMICOS
 │   │   ├── sales/processSaleUseCase.ts
@@ -351,21 +352,59 @@ src/
 - **Motivo**: El cliente `@supabase/supabase-js` requiere persistir el token de sesión. Si `src/data/supabase/client.ts` importase `@capacitor/preferences`, la capa de datos dependería de una biblioteca de plataforma móvil nativa.
 - **Implementación**: Se definió la interfaz `KeyValueStorage` en `src/shared/storage/storage.interface.ts`. En `src/platform/storage/capacitorPreferencesStorage.ts` se implementó el adaptador. En `src/main.tsx` (raíz de composición) se inyecta mediante `setSupabaseStorage(capacitorPreferencesStorage)`.
 
-### 7.2. Funcionamiento de `RoleTestBanner`
-- **Comportamiento real**: Es un componente visual presente en la parte superior de `App.tsx` que se muestra cuando `user.role !== 'ADMIN'` o cuando `isTestingRole` está activo. Permite al usuario con rol de Administrador cambiar temporalmente la interfaz a la vista de `CAJERO` o `REPOSITOR`.
-- **Alcance**: El cambio de rol ocurre **únicamente en memoria del cliente** modificando la propiedad `user.role` dentro del estado de React (`InventoryContext`). No altera la sesión en la base de datos Supabase, no modifica el registro del usuario en la tabla `store_members` ni guarda datos en el almacenamiento local del dispositivo.
-- **Disponibilidad**: Está presente en el código tanto en entorno de desarrollo como en la compilación para producción (APK).
+### 7.2. Funcionamiento de `RoleTestBanner` y Guardia de Simulación (`runWrite`)
+- **Comportamiento y Visibilidad**: El banner `RoleTestBanner` se renderiza en la parte superior únicamente cuando `isTestingRole === true` (activado voluntariamente por un usuario Administrador desde la sección de Ajustes para previsualizar los permisos de otros roles). Los usuarios reales con roles `CAJERO` o `REPOSITOR` autenticados mediante sesión de base de datos **nunca** ven este banner.
+- **Mensaje y Controles**: El banner muestra claramente `"MODO PRUEBA: los cambios NO se guardan"` junto con el botón `"Salir de prueba"`, el cual restaura de inmediato el rol real `ADMIN` del usuario.
+- **Punto Único de Control (`runWrite`)**: Todas las operaciones de mutación están protegidas en la capa de aplicación mediante la función guardia `runWrite` (`src/application/logic/writeGuard.ts`). Cuando `isTestingRole` está activo:
+  1. Se intercepta la operación antes de invocar cualquier llamada de red o cliente Supabase.
+  2. Se ejecuta la rama `onSimulate`, la cual actualiza el estado local de React en memoria con la misma estructura y tipos que la base de datos real.
+  3. Se notifica al usuario mediante un toast: `"Modo prueba: nada se guardó"`.
+  4. Ninguna sentencia SQL (`INSERT`, `UPDATE`, `DELETE`, `UPSERT`), llamada RPC ni subida a Supabase Storage llega al servidor.
+- **Reinicio Automático**: El modo prueba se desactiva automáticamente (`isTestingRole = false`) restableciendo el rol a `ADMIN` al:
+  - Cerrar sesión (`logout` o evento `SIGNED_OUT`).
+  - Cambiar de tienda activa (`switchStore`).
+  - Recargar la aplicación en el navegador o iniciar la app móvil (`INITIAL_SESSION`).
 
 ### 7.3. Generación de Reportes en Formato CSV
 - **Motivo**: El reporte se genera con texto plano en formato CSV codificado con UTF-8 BOM (`\uFEFF`), lo que permite su apertura en Microsoft Excel tanto en dispositivos móviles como en computadoras sin necesidad de incluir bibliotecas externas de hojas de cálculo (como `xlsx`).
 - **Ruta de guardado**: Mediante `capacitorFilesystem.ts`, en Android se almacena en la carpeta nativa `Documentos/Rentabill/productos_YYYY-MM-DD.csv`, mientras que en navegadores web se genera la descarga directa mediante un objeto `Blob`.
+
+### 7.4. Alineación de Contratos RPC con el Esquema Supabase v3.7
+Todas las funciones RPC invocadas desde la capa de datos y repositorios están rigurosamente alineadas con los contratos del esquema SQL v3.7 (`rentabill_schema_v3.7.sql`):
+1. **`process_sale`**:
+   - `p_store_id`: UUID de la tienda activa.
+   - `p_ticket_number`: Cadena formateada única (e.g., `TKT-00101`).
+   - `p_payment_method`: Cadena en minúsculas (`'efectivo'`, `'tarjeta'`, `'yape'`, `'plin'`, `'transferencia'`, `'qr'`).
+   - `p_cash_given`: Monto en efectivo entregado por el cliente.
+   - `p_register_id`: Identificador de la caja registradora activa.
+   - `p_items`: Array JSON donde cada elemento contiene de forma estricta las claves `{ productId: string, quantity: number }` (con cantidad estrictamente mayor a 0).
+2. **`process_purchase`**:
+   - `p_store_id`: UUID de la tienda.
+   - `p_supplier_id`: UUID del proveedor opcional.
+   - `p_items`: Array JSON de partidas con `{ product_id, quantity, unit_cost }`.
+   - `p_note`: Observaciones de la compra.
+   - `p_payment_condition`: `'contado'` o `'credito'`.
+   - `p_credit_days`: Entero de días de crédito (0 si es contado).
+   - `p_simulation_ids`: Array de UUIDs de simulaciones relacionadas.
+3. **`adjust_stock`**:
+   - `p_store_id`, `p_product_id`, `p_quantity_delta` (positivo para entradas, negativo para mermas/salidas), `p_note`, `p_user_name`.
+4. **`pay_purchase`**:
+   - `p_store_id`, `p_purchase_id`.
+5. **`create_store`**:
+   - `name`, `type`, `currency` (por defecto `'PEN'`).
+6. **`switch_store`**:
+   - `p_store_id`.
+7. **`invite_by_code`**:
+   - `p_store_id`, `p_user_code` (código público del usuario destino en mayúsculas), `p_role` (`'CAJERO'` | `'REPOSITOR'` | `'ADMIN'`).
+8. **`accept_invitation`**:
+   - `p_token`: Token alfanumérico o identificador único de la invitación.
 
 ---
 
 ## 8. Limitaciones Técnicas Conocidas
 
 1. **Concentración de Estado en `InventoryContext.tsx`**:
-   - `src/application/state/InventoryContext.tsx` contiene 2,556 líneas de código. Concentra 11 áreas de responsabilidad (autenticación, multi-tienda, carrito/POS, inventario, kardex, compras, simulaciones, equipo, configuración, suscripciones en tiempo real y estado de modales). Aunque se delegaron las mutaciones hacia casos de uso y repositorios, el estado global no ha sido fragmentado en contextos independientes por dominio.
+   - `src/application/state/InventoryContext.tsx` contiene 2,961 líneas de código. Concentra 11 áreas de responsabilidad (autenticación, multi-tienda, carrito/POS, inventario, kardex, compras, simulaciones, equipo, configuración, suscripciones en tiempo real y estado de modales). Aunque se delegaron las mutaciones hacia casos de uso y repositorios, el estado global no ha sido fragmentado en contextos independientes por dominio.
 
 2. **Dependencia de Conexión a Internet (Sin Cola Offline)**:
    - La aplicación requiere conectividad activa con el backend Supabase para registrar ventas, compras o movimientos de stock. No implementa una cola local persistente de sincronización (*offline-first sync queue*) para almacenar operaciones sin conexión y sincronizarlas automáticamente al recuperar la red.
