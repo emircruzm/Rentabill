@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
   Camera, 
@@ -176,7 +176,8 @@ export const POSView: React.FC = () => {
   } = useInventory();
 
   const [paymentMethod, setPaymentMethod] = useState<'efectivo' | 'qr' | 'tarjeta'>('efectivo');
-  const [cashGiven, setCashGiven] = useState<number>(20);
+  const [isExactCash, setIsExactCash] = useState<boolean>(true);
+  const [customCash, setCustomCash] = useState<number | null>(null);
   const [posSearch, setPosSearch] = useState<string>('');
   const [showCatalogModal, setShowCatalogModal] = useState<boolean>(false);
   const [isScanning, setIsScanning] = useState<boolean>(false);
@@ -193,6 +194,18 @@ export const POSView: React.FC = () => {
     return cart.reduce((sum, item) => sum + (item.product.salePrice * item.quantity), 0);
   }, [cart]);
 
+  // Vuelve a "Exacto" cada vez que cambie el carrito (agregar, quitar o cambiar cantidad) - (a)
+  useEffect(() => {
+    setIsExactCash(true);
+    setCustomCash(null);
+  }, [cart]);
+
+  // Monto efectivo dinámico: si está en "Exacto" se calcula a partir del total actual (nunca guardado fijo)
+  const effectiveCashGiven = useMemo(() => {
+    if (isExactCash) return totalAmount;
+    return customCash !== null ? customCash : totalAmount;
+  }, [isExactCash, customCash, totalAmount]);
+
   // Validation for bulk items with 0 or empty weight (B6)
   const invalidWeightItem = useMemo(() => {
     return cart.find(item => !item.quantity || item.quantity <= 0);
@@ -208,11 +221,11 @@ export const POSView: React.FC = () => {
   }, [cart, products]);
   const hasInvalidStock = !!invalidStockItem;
 
-  // Live change calculation
+  // Live change calculation (con total = exacto, vuelto = 0)
   const liveChange = useMemo(() => {
     if (paymentMethod !== 'efectivo') return 0;
-    return Math.max(0, cashGiven - totalAmount);
-  }, [paymentMethod, cashGiven, totalAmount]);
+    return Math.max(0, effectiveCashGiven - totalAmount);
+  }, [paymentMethod, effectiveCashGiven, totalAmount]);
 
   // Check if any product in the cart is about to reach the 5th sale ticket
   const calibrationPendingItem = useMemo(() => {
@@ -266,8 +279,10 @@ export const POSView: React.FC = () => {
       setIsProcessing(true);
       const currentTotal = totalAmount;
       const currentItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-      const result = await checkout(paymentMethod, paymentMethod === 'efectivo' ? cashGiven : totalAmount);
+      const result = await checkout(paymentMethod, paymentMethod === 'efectivo' ? effectiveCashGiven : totalAmount);
       if (result.success) {
+        setIsExactCash(true);
+        setCustomCash(null);
         setSaleConfirmation({
           totalAmount: currentTotal,
           changeGiven: result.change,
@@ -620,16 +635,20 @@ export const POSView: React.FC = () => {
 
               <div className="grid grid-cols-4 gap-2">
                 {[10, 20, 50, 'Exacto'].map((val, idx) => {
-                  const isSelected = val === 'Exacto' ? cashGiven === totalAmount : cashGiven === val;
+                  const isSelected = val === 'Exacto'
+                    ? isExactCash
+                    : (!isExactCash && effectiveCashGiven === val);
 
                   return (
                     <button
                       key={idx}
                       onClick={() => {
                         if (val === 'Exacto') {
-                          setCashGiven(totalAmount);
+                          setIsExactCash(true);
+                          setCustomCash(null);
                         } else {
-                          setCashGiven(Number(val));
+                          setIsExactCash(false);
+                          setCustomCash(Number(val));
                         }
                         setPaymentMethod('efectivo');
                       }}
@@ -651,14 +670,27 @@ export const POSView: React.FC = () => {
                 <input
                   type="number"
                   step="0.5"
-                  value={cashGiven || ''}
-                  onChange={e => setCashGiven(parseFloat(e.target.value) || 0)}
+                  value={isExactCash ? (totalAmount > 0 ? totalAmount : '') : (customCash !== null ? customCash : '')}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    if (raw === '') {
+                      setCustomCash(null);
+                      setIsExactCash(false);
+                    } else {
+                      const parsed = parseFloat(raw);
+                      setCustomCash(isNaN(parsed) ? 0 : parsed);
+                      setIsExactCash(false);
+                    }
+                  }}
                   className="w-full pl-8 pr-8 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-slate-900 focus:outline-hidden focus:border-emerald-500"
                   placeholder="Monto entregado..."
                 />
-                {cashGiven > 0 && (
+                {effectiveCashGiven > 0 && (
                   <button
-                    onClick={() => setCashGiven(0)}
+                    onClick={() => {
+                      setCustomCash(0);
+                      setIsExactCash(false);
+                    }}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
                   >
                     ✕
@@ -750,7 +782,11 @@ export const POSView: React.FC = () => {
         {/* Payment Methods tabs (B8: Yape / Plin / Transferencia) */}
         <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100">
           <button
-            onClick={() => setPaymentMethod('efectivo')}
+            onClick={() => {
+              setPaymentMethod('efectivo');
+              setIsExactCash(true);
+              setCustomCash(null);
+            }}
             className={`py-2 px-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors ${
               paymentMethod === 'efectivo'
                 ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
@@ -764,7 +800,6 @@ export const POSView: React.FC = () => {
           <button
             onClick={() => {
               setPaymentMethod('qr');
-              setCashGiven(totalAmount);
             }}
             className={`py-2 px-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors ${
               paymentMethod === 'qr'
@@ -779,7 +814,6 @@ export const POSView: React.FC = () => {
           <button
             onClick={() => {
               setPaymentMethod('tarjeta');
-              setCashGiven(totalAmount);
             }}
             className={`py-2 px-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors ${
               paymentMethod === 'tarjeta'
