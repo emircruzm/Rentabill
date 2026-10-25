@@ -1,0 +1,24 @@
+# Catálogo de Reglas de Negocio del Sistema
+
+Este documento recopila las reglas de negocio, restricciones de integridad y directivas operativas de Rentabill, identificando la capa de software responsable de su exigencia: **Interfaz (UI)**, **Aplicación (Application)** o **Base de Datos (Database)**.
+
+---
+
+## 1. Matriz Integral de Reglas de Negocio
+
+| Código | Regla de Negocio | Descripción Operativa | Dónde se Aplica y Verifica |
+| :---: | :--- | :--- | :--- |
+| **RN-01** | **Control de Acceso por Roles (RBAC)** | `ADMIN`: Control total. `CAJERO`: Exclusivamente POS y sus ventas emitidas. `REPOSITOR`: Inventario, kardex y compras; sin POS ni finanzas. | • **UI:** `BottomNavigation.tsx:32-48`, `App.tsx:65-90`<br>• **App:** `roles.ts:15-45`<br>• **BD:** Políticas RLS y funciones RPC |
+| **RN-02** | **Transición de Velocidad ESTIMADO -> REAL** | Un producto nuevo inicia en modo `ESTIMADO`. Transiciona automáticamente a `REAL` al acumular $\ge 5$ tickets de venta (`salesCount >= 5`) o 30 días de vida. | • **UI:** Modal `CalibrationModal.tsx`<br>• **App:** `financialMetrics.ts:60-85`<br>• **BD:** Vista `product_stats` y RPC `process_sale` |
+| **RN-03** | **No Negatividad de Existencias** | Las existencias físicas (`stock`) jamás pueden ser negativas. Una venta o merma que supere el stock es rechazada. | • **UI:** Alerta preventiva en `POSView.tsx`<br>• **App:** `processSaleUseCase.ts`<br>• **BD:** Constraint `CHECK (stock >= 0)` en `products` y RPC |
+| **RN-04** | **Precisión Numérica Decimal `NUMERIC(12,3)`** | Cantidades de productos y precios se almacenan con 3 decimales, permitiendo pesaje fraccionario para artículos a granel (ej. 0.333 kg de arroz). | • **UI:** `BulkScaleWidget` en POS<br>• **App:** Tipado `number` con redondeo bancario<br>• **BD:** Tipo de dato `NUMERIC(12,3)` en tablas y RPCs |
+| **RN-05** | **Pago en Efectivo "Exacto" por Defecto** | Al entrar a cobrar en POS, el monto recibido se fija automáticamente en el total exacto (vuelto S/ 0). Se recalcula si el carrito cambia. | • **UI/App:** `POSView.tsx` e `InventoryContext.tsx` |
+| **RN-06** | **Snapshots Inmutables de Partidas de Venta** | Cada partida vendida congela el costo unitario (`costPriceAtSale`) y el nombre (`productNameSnapshot`). Futuras ediciones de catálogo no alteran el margen histórico. | • **BD:** Columnas obligatorias en `sale_items` pobladas por la RPC `process_sale` |
+| **RN-07** | **Aislamiento Multi-tienda Estricto** | Un usuario puede pertenecer a múltiples bodegas, pero los datos de catálogo, ventas y equipo están aislados por sucursal. | • **UI:** `StoreSelectorModal.tsx`<br>• **App:** Inyección de `storeId` activo<br>• **BD:** Políticas RLS con `is_store_member(store_id)` |
+| **RN-08** | **Inmutabilidad y Formato de Código de Usuario** | Todo usuario recibe un código público único inmutable de 6 caracteres (`RENT-XXXX`) para recibir invitaciones. | • **App:** `ProfileModal.tsx`<br>• **BD:** Trigger `protect_user_code` y regex `^[A-Z0-9]{6}$` |
+| **RN-09** | **Expiración de Invitaciones de Equipo** | Las invitaciones emitidas por un Administrador caducan automáticamente a los 7 días de ser generadas si no han sido aceptadas. | • **App:** `respondInvitationUseCase.ts`<br>• **BD:** Validación `expires_at > now()` en RPC `accept_invitation` |
+| **RN-10** | **Protección del Propietario y Último Administrador** | Está estrictamente prohibido degradar de rol o eliminar al dueño de la bodega (`owner_id`) o al último Administrador activo del negocio. | • **UI:** Botón eliminar deshabilitado en Ajustes<br>• **BD:** Trigger `check_last_store_admin` en `store_members` |
+| **RN-11** | **Archivado Lógico de Productos con Historial** | Un producto que registra ventas o asientos en kardex no se borra físicamente: se archiva (`archived_at = now()`), liberando su código de barras. | • **App:** `deleteProductUseCase.ts`<br>• **BD:** Índice único parcial `WHERE archived_at IS NULL` |
+| **RN-12** | **Métodos de Pago Autorizados** | Solo se admiten transacciones en medios de pago registrados: `'efectivo'`, `'tarjeta'`, `'yape'`, `'plin'`, `'transferencia'`, `'qr'` (en minúsculas). | • **UI:** Botonera en POS<br>• **App:** Tipo `PaymentMethod`<br>• **BD:** Constraint `CHECK (payment_method IN (...))` |
+| **RN-13** | **Trazabilidad Total en Kardex (Zero Orphan Stock)** | Todo movimiento de existencias (venta, compra, ajuste manual o stock inicial al dar de alta) genera un asiento en `inventory_movements`. | • **BD:** Disparador `trg_product_initial_stock` y funciones RPC `process_sale`, `process_purchase`, `adjust_stock` |
+| **RN-14** | **Guardia de Simulación en Modo Prueba** | Cuando un Administrador activa el modo prueba (`isTestingRole === true`), ninguna mutación toca la BD; se actualiza el estado local y se avisa al usuario. | • **UI:** Banner `RoleTestBanner.tsx`<br>• **App:** Función interceptora `runWrite.ts` |
