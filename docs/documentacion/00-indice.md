@@ -51,7 +51,7 @@ La documentación está organizada de forma modular en 15 documentos temáticos:
 * [08-decisiones-de-diseno.md](08-decisiones-de-diseno.md): Decisiones arquitectónicas en formato ADR (Architecture Decision Record) categorizadas como `[DOCUMENTADO]` o `[DEDUCIDO]`.
 * [09-pruebas-y-verificacion.md](09-pruebas-y-verificacion.md): Comandos de validación estática, verificación matemática de fórmulas y límites de cobertura.
 * [10-despliegue-y-operacion.md](10-despliegue-y-operacion.md): Guía paso a paso para despliegue desde cero de backend y frontend, y generación de APK nativo Android.
-* [11-guia-de-sustentacion.md](011-guia-de-sustentacion.md): Banco de preguntas y respuestas técnicas para la defensa ante el docente evaluador y mapa de ubicación de código.
+* [11-guia-de-sustentacion.md](11-guia-de-sustentacion.md): Banco de preguntas y respuestas técnicas para la defensa ante el docente evaluador y mapa de ubicación de código.
 * [12-glosario.md](12-glosario.md): Definición formal de conceptos de negocio y términos de ingeniería de software utilizados.
 * [13-hallazgos.md](13-hallazgos.md): Bitácora de incoherencias, código inalcanzado o áreas de mejora identificadas en el código fuente.
 * [14-preguntas-abiertas.md](14-preguntas-abiertas.md): Consolidado de aspectos `[DEDUCIDO]` y puntos pendientes de confirmación técnica con el equipo de desarrollo.
