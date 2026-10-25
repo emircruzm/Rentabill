@@ -1078,18 +1078,19 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // fallback to in-memory sales.length + 1
     }
     const ticketNumber = `TKT-${String(100 + ticketSeq).padStart(5, '0')}`;
+    const cleanPaymentMethod = (paymentMethod || 'efectivo').toLowerCase().trim();
 
     const itemsPayload = cart.map(c => ({
-      product_id: c.product.id,
-      quantity: c.quantity,
+      productId: c.product.id,
+      quantity: Number(c.quantity),
     }));
 
     const executeProcessSale = async (tkt: string | null = null) => {
       return await supabase.rpc('process_sale', {
         p_store_id: user.storeId,
         p_ticket_number: tkt,
-        p_payment_method: paymentMethod,
-        p_cash_given: paymentMethod === 'efectivo' ? (cashGiven || total) : null,
+        p_payment_method: cleanPaymentMethod,
+        p_cash_given: cleanPaymentMethod === 'efectivo' ? (cashGiven || total) : null,
         p_items: itemsPayload,
         p_register_id: null,
       });
@@ -1127,7 +1128,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await loadStoreData(user.storeId);
       setCart([]);
 
-      showToast(`Cobro exitoso por S/ ${total.toFixed(2)}`, 'success', `Vuelto: S/ ${change.toFixed(2)} (${paymentMethod})`);
+      showToast(`Cobro exitoso por S/ ${total.toFixed(2)}`, 'success', `Vuelto: S/ ${change.toFixed(2)} (${cleanPaymentMethod})`);
       return { success: true, change };
     } catch (err: any) {
       console.error('Error procesando cobro:', err);
@@ -1162,7 +1163,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         p_ticket_number: ticketNumber,
         p_payment_method: 'efectivo',
         p_cash_given: product.salePrice,
-        p_items: [{ product_id: product.id, quantity: 1 }],
+        p_items: [{ productId: product.id, quantity: 1 }],
       });
 
       if (rpcErr) throw rpcErr;

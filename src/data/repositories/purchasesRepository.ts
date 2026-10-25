@@ -26,7 +26,20 @@ export const purchasesRepository = {
   },
 
   async processPurchase(params: ProcessPurchaseParams): Promise<any> {
-    const { data, error } = await supabase.rpc('process_purchase', params);
+    const payload = {
+      p_store_id: params.p_store_id,
+      p_supplier_id: params.p_supplier_id || null,
+      p_items: (params.p_items || []).map(i => ({
+        product_id: i.product_id,
+        quantity: Number(i.quantity),
+        unit_cost: Number(i.unit_cost),
+      })),
+      p_note: params.p_note || params.p_notes || null,
+      p_payment_condition: params.p_payment_condition || null,
+      p_credit_days: params.p_credit_days != null ? Number(params.p_credit_days) : null,
+      p_simulation_ids: params.p_simulation_ids || null,
+    };
+    const { data, error } = await supabase.rpc('process_purchase', payload);
     if (error) throw error;
     return data;
   },

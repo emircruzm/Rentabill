@@ -57,9 +57,9 @@ export const authRepository = {
 
   async updateProfile(userId: string, updates: Partial<UserProfile>) {
     const dbUpdates: Record<string, any> = {};
-    if (updates.name !== undefined) dbUpdates.full_name = updates.name;
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
-    if (updates.avatar !== undefined) dbUpdates.avatar_url = updates.avatar;
+    if (updates.avatar !== undefined) dbUpdates.avatar = updates.avatar;
 
     return supabase.from('profiles').update(dbUpdates).eq('id', userId);
   },

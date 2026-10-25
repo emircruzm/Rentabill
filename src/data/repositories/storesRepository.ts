@@ -32,9 +32,9 @@ export const storesRepository = {
 
   async createStore(name: string, type: string, currency = 'PEN'): Promise<any> {
     const { data, error } = await supabase.rpc('create_store', {
-      p_name: name.trim(),
-      p_type: type,
-      p_currency: currency,
+      name: name.trim(),
+      type: type.trim(),
+      currency: currency.trim(),
     });
     if (error) throw error;
     return data;

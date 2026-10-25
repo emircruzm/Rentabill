@@ -17,7 +17,7 @@ export const storeMapper = {
     const prof = row.profiles || {};
     return {
       id: row.user_id,
-      name: prof.full_name || 'Miembro',
+      name: prof.name || prof.full_name || 'Miembro',
       role: row.role,
       contact: prof.phone || prof.email || '',
       addedDate: new Date(row.joined_at || Date.now()).toISOString().split('T')[0],
@@ -31,7 +31,7 @@ export const storeMapper = {
     return {
       id: row.id,
       userId: row.user_id || row.target_user_id || '',
-      userName: prof.full_name || 'Invitado',
+      userName: prof.name || prof.full_name || 'Invitado',
       userEmail: prof.email || '',
       userPhone: prof.phone || '',
       role: row.role,

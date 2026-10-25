@@ -6,7 +6,7 @@ export const teamRepository = {
   async getMembersByStoreId(storeId: string): Promise<TeamMember[]> {
     const { data, error } = await supabase
       .from('store_members')
-      .select('user_id, role, joined_at, profiles(id, full_name, email, phone)')
+      .select('user_id, role, joined_at, profiles(id, name, email, phone, user_code)')
       .eq('store_id', storeId);
 
     if (error) throw error;
@@ -24,10 +24,10 @@ export const teamRepository = {
     return (data || []).map(storeMapper.fromInvitationRow);
   },
 
-  async inviteByCode(storeId: string, targetUserId: string, role: UserRole): Promise<any> {
+  async inviteByCode(storeId: string, userCode: string, role: UserRole = 'CAJERO'): Promise<any> {
     const { data, error } = await supabase.rpc('invite_by_code', {
       p_store_id: storeId,
-      p_target_user_id: targetUserId,
+      p_user_code: userCode.trim().toUpperCase(),
       p_role: role,
     });
     if (error) throw error;
@@ -43,9 +43,9 @@ export const teamRepository = {
     if (error) throw error;
   },
 
-  async acceptInvitation(invitationId: string): Promise<any> {
+  async acceptInvitation(token: string): Promise<any> {
     const { data, error } = await supabase.rpc('accept_invitation', {
-      p_invitation_id: invitationId,
+      p_token: token.trim(),
     });
     if (error) throw error;
     return data;
@@ -80,14 +80,14 @@ export const teamRepository = {
   async findUserById(userId: string): Promise<RegisteredDirectoryUser | null> {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, full_name, email, phone')
+      .select('id, name, email, phone, user_code')
       .eq('id', userId)
       .maybeSingle();
 
     if (error || !data) return null;
     return {
       userId: data.id,
-      name: data.full_name || 'Usuario',
+      name: data.name || 'Usuario',
       email: data.email || '',
       phone: data.phone || '',
     };

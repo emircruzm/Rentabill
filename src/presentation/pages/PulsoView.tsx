@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { 
   TrendingUp, 
   AlertTriangle, 
@@ -92,7 +92,6 @@ export const PulsoView: React.FC = () => {
                 strokeDashoffset={strokeDashoffset}
                 strokeLinecap="round"
                 fill="transparent"
-                strokeDashoffset-animation="true"
                 className={`transition-all duration-700 ease-out ${
                   !metrics.isCalibratedMode ? 'stroke-dasharray-4' : ''
                 }`}

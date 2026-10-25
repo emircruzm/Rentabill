@@ -2,10 +2,11 @@ import { supabase } from '@data/supabase/client';
 import { InventoryMovement } from '@shared/types/index';
 
 export interface AdjustStockParams {
+  p_store_id: string;
   p_product_id: string;
-  p_new_stock: number;
-  p_reason?: string;
-  p_note?: string;
+  p_quantity_delta: number;
+  p_note: string;
+  p_user_name?: string | null;
 }
 
 export const stockRepository = {
@@ -34,7 +35,13 @@ export const stockRepository = {
   },
 
   async adjustStock(params: AdjustStockParams): Promise<any> {
-    const { data, error } = await supabase.rpc('adjust_stock', params);
+    const { data, error } = await supabase.rpc('adjust_stock', {
+      p_store_id: params.p_store_id,
+      p_product_id: params.p_product_id,
+      p_quantity_delta: Number(params.p_quantity_delta),
+      p_note: params.p_note.trim(),
+      p_user_name: params.p_user_name || null,
+    });
     if (error) throw error;
     return data;
   },

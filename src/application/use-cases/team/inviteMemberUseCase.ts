@@ -3,13 +3,13 @@ import { UserRole } from '@shared/types/index';
 
 export async function inviteMemberUseCase(
   storeId: string,
-  targetUserId: string,
+  userCode: string,
   role: UserRole
 ): Promise<any> {
-  if (!storeId || !targetUserId) {
-    throw new Error('ID de tienda y usuario destino requeridos');
+  if (!storeId || !userCode) {
+    throw new Error('ID de tienda y código de usuario requeridos');
   }
-  return await teamRepository.inviteByCode(storeId, targetUserId, role);
+  return await teamRepository.inviteByCode(storeId, userCode, role);
 }
 
 export async function cancelInvitationUseCase(invitationId: string): Promise<void> {
