@@ -1,3 +1,4 @@
+-- Nota: documento histórico, anterior a la reorganización en capas y a la versión 3.7 de la base de datos. Puede mencionar tablas o estructuras que ya no existen. Referencias vigentes: docs/ARQUITECTURA.md y supabase/rentabill_schema_v3.7.sql.
 -- ============================================================================
 -- SUITE DE PRUEBAS AUTOMATIZADAS DE AUDITORÍA Y REGRESIÓN (tests.sql)
 -- Proyecto: Rentabill - Rediseño de Base de Datos y RBAC Multi-tienda

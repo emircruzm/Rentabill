@@ -46,7 +46,8 @@ Las tecnologías y versiones utilizadas en el proyecto, extraídas directamente 
 
 ## Arquitectura del Software
 
-El sistema implementa una arquitectura en capas desacoplada y unidireccional. La capa de Presentación gestiona interfaces y modales sin conocer la base de datos ni los plugins móviles; la capa de Aplicación organiza casos de uso atómicos, lógica financiera pura y estado global; la capa de Plataforma encapsula las interfaces nativas de Capacitor; la capa de Datos administra repositorios, mapeadores y canales en tiempo real de Supabase; y la capa Compartida centraliza contratos, constantes y tipos de dominio. La integridad de las dependencias entre capas es auditada automáticamente mediante el comando `npm run check:layers`.
+El proyecto implementa una arquitectura en capas: 4 capas más un módulo compartido, con reglas de dependencia verificadas por el script `npm run check:layers`. La capa de Presentación gestiona interfaces y modales sin conocer la base de datos ni los plugins móviles; la capa de Aplicación organiza casos de uso atómicos, lógica financiera pura y estado global; la capa de Plataforma encapsula las interfaces nativas de Capacitor; la capa de Datos administra repositorios, mapeadores y canales en tiempo real de Supabase; y la capa Compartida centraliza contratos, constantes y tipos de dominio.
+
 
 ```text
 src/
@@ -73,7 +74,9 @@ El backend de datos está construido sobre PostgreSQL alojado en Supabase, prote
 * **Esquemas anteriores (históricos):**
   * `supabase/schema_completo.sql`: Versión anterior consolidada (v3.3.0).
   * `supabase/migrations/`: Colección de 12 migraciones históricas previas.
-  * `docs/REDISENO_BASE_DE_DATOS.sql`: Diseño preliminar DDL (v3.0.0).
+  * `docs/historico/REDISENO_BASE_DE_DATOS.sql`: Diseño preliminar DDL (v3.0.0).
+  * `docs/historico/LIMPIAR_BASE_DE_DATOS.sql`: Script preliminar de limpieza (histórico).
+  * `docs/historico/tests.sql`: Pruebas automatizadas del esquema preliminar (histórico).
 
 ## Requisitos y Cómo Ejecutarlo
 
@@ -194,5 +197,9 @@ De acuerdo con lo detallado en la sección 8 de `docs/ARQUITECTURA.md`:
 ## Enlaces a la Documentación
 
 * [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md): Documentación técnica y de arquitectura vigente (especificación detallada de capas, patrones de diseño, diagramas de secuencia y contratos de funciones RPC).
-* [informe_tecnico.md](informe_tecnico.md): Informe técnico anterior (histórico).
+* Material histórico en [docs/historico/](docs/historico/):
+  * [docs/historico/informe_tecnico.md](docs/historico/informe_tecnico.md): Informe técnico anterior (histórico, v3.7.0).
+  * [docs/historico/INFORME_TECNICO_v3.1.md](docs/historico/INFORME_TECNICO_v3.1.md): Informe técnico anterior (histórico, v3.1.0).
+  * [docs/historico/AUDITORIA_BD.md](docs/historico/AUDITORIA_BD.md): Auditoría de base de datos anterior (histórico).
+
 

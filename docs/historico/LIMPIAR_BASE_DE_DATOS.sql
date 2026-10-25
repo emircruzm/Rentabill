@@ -1,3 +1,5 @@
+-- Nota: documento histórico, anterior a la reorganización en capas y a la versión 3.7 de la base de datos. Puede mencionar tablas o estructuras que ya no existen. Referencias vigentes: docs/ARQUITECTURA.md y supabase/rentabill_schema_v3.7.sql.
+-- PELIGRO: este script borra datos. NO ejecutar en producción.
 ﻿TRUNCATE TABLE 
     public.simulation_items,
     public.purchase_items,
