@@ -1,3 +1,4 @@
+-- Versión anterior; el esquema vigente es supabase/rentabill_schema_v3.7.sql
 BEGIN;
 
 -- 1. Backfill y Normalización 3FN: categorías de texto hacia tabla categories

@@ -1,3 +1,4 @@
+-- Versión anterior; el esquema vigente es supabase/rentabill_schema_v3.7.sql
 BEGIN;
 
 -- 1. Agregar units_sold y sales_count a products si no existen

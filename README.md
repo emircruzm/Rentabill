@@ -69,12 +69,11 @@ El backend de datos está construido sobre PostgreSQL alojado en Supabase, prote
 
 ### Ubicación del Esquema en el Repositorio
 
-Los scripts SQL que componen la base de datos están organizados en:
-* `supabase/schema_completo.sql`: Definición global consolidada de la estructura de base de datos.
-* `supabase/migrations/`: Colección de 12 archivos de migraciones secuenciales del proyecto.
-* `docs/REDISENO_BASE_DE_DATOS.sql`: Especificación DDL del modelo entidad-relación y funciones.
-
-*Nota de verificación:* El archivo de referencia `rentabill_schema_v3.7.sql` corresponde al esquema desplegado en la instancia en la nube de Supabase y no forma parte del árbol de archivos versionados en este repositorio local.
+* **Esquema vigente:** `supabase/rentabill_schema_v3.7.sql` (versión 3.7 oficial del esquema con 16 tablas, vista `product_stats` y 8 funciones RPC).
+* **Esquemas anteriores (históricos):**
+  * `supabase/schema_completo.sql`: Versión anterior consolidada (v3.3.0).
+  * `supabase/migrations/`: Colección de 12 migraciones históricas previas.
+  * `docs/REDISENO_BASE_DE_DATOS.sql`: Diseño preliminar DDL (v3.0.0).
 
 ## Requisitos y Cómo Ejecutarlo
 

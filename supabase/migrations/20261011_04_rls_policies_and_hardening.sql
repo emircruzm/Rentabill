@@ -1,3 +1,4 @@
+-- Versión anterior; el esquema vigente es supabase/rentabill_schema_v3.7.sql
 BEGIN;
 
 -- 1. Helper functions de membresía y roles (SECURITY DEFINER, search_path = '', STABLE)

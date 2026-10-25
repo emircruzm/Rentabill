@@ -1,3 +1,4 @@
+-- Versión anterior; el esquema vigente es supabase/rentabill_schema_v3.7.sql
 -- ==============================================================================
 -- RENTABILL - ESQUEMA COMPLETO Y EJECUTABLE DE BASE DE DATOS (POSTGRESQL 17)
 -- Versión: 3.3.0

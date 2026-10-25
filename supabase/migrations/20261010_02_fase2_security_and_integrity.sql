@@ -1,3 +1,4 @@
+-- Versión anterior; el esquema vigente es supabase/rentabill_schema_v3.7.sql
 BEGIN;
 
 -- Guarda de orden: verificar que units_sold existe

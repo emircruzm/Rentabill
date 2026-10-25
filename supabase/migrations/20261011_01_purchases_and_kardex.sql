@@ -1,3 +1,4 @@
+-- Versión anterior; el esquema vigente es supabase/rentabill_schema_v3.7.sql
 BEGIN;
 
 -- 1. Crear tabla purchases con UNIQUE (store_id, id) y FK compuesta hacia suppliers

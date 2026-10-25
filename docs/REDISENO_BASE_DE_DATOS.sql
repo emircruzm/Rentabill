@@ -1,3 +1,4 @@
+-- Versión anterior; el esquema vigente es supabase/rentabill_schema_v3.7.sql
 -- =============================================================================
 -- RENTABILL - REDISEÑO INTEGRAL DE BASE DE DATOS POSTGRESQL (SUPABASE)
 -- Versión: 3.0.0

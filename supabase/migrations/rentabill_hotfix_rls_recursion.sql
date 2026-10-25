@@ -1,3 +1,4 @@
+-- Versión anterior; el esquema vigente es supabase/rentabill_schema_v3.7.sql
 -- =============================================================================
 -- Migration: rentabill_hotfix_rls_recursion.sql
 -- Description: Fix infinite recursion (42P17) in store_members and stores RLS policies
