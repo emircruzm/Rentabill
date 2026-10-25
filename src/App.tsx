@@ -1,25 +1,27 @@
 import React from 'react';
-import { InventoryProvider, useInventory } from './context/InventoryContext';
-import { Header } from './components/Header';
-import { BottomNavigation } from './components/BottomNavigation';
-import { ToastNotification } from './components/ToastNotification';
-import { CalibrationModal } from './components/CalibrationModal';
-import { LogoutConfirmModal } from './components/LogoutConfirmModal';
-import { ProfileModal } from './components/ProfileModal';
-import { InviteTeamModal } from './components/InviteTeamModal';
-import { InvitationConfirmModal } from './components/InvitationConfirmModal';
-import { HelpTutorialModal } from './components/HelpTutorialModal';
-import { RoleTestBanner } from './components/RoleTestBanner';
-import { PulsoView } from './views/PulsoView';
-import { InventarioView } from './views/InventarioView';
-import { POSView } from './views/POSView';
-import { RestockSimulatorView } from './views/RestockSimulatorView';
-import { ProductRegisterView } from './views/ProductRegisterView';
-import { HistorialView } from './views/HistorialView';
-import { AjustesView } from './views/AjustesView';
-import { AuthView } from './views/AuthView';
-import { OnboardingView } from './views/OnboardingView';
-import { ConnectionErrorView } from './views/ConnectionErrorView';
+import { InventoryProvider, useInventory } from '@application/index';
+import {
+  Header,
+  BottomNavigation,
+  ToastNotification,
+  CalibrationModal,
+  LogoutConfirmModal,
+  ProfileModal,
+  InviteTeamModal,
+  InvitationConfirmModal,
+  HelpTutorialModal,
+  RoleTestBanner,
+  PulsoView,
+  InventarioView,
+  POSView,
+  RestockSimulatorView,
+  ProductRegisterView,
+  HistorialView,
+  AjustesView,
+  AuthView,
+  OnboardingView,
+  ConnectionErrorView
+} from '@presentation/index';
 
 const MainContent: React.FC = () => {
   const { activeTab } = useInventory();

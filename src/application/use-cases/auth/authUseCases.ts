@@ -34,3 +34,18 @@ export async function logoutUseCase() {
 export async function getSessionUseCase() {
   return await authRepository.getSession();
 }
+
+export async function resendConfirmationUseCase(email: string) {
+  if (!email) {
+    throw new Error('El correo es requerido');
+  }
+  return await authRepository.resendEmailConfirmation(email.trim());
+}
+
+export async function resetPasswordUseCase(email: string) {
+  if (!email) {
+    throw new Error('El correo es requerido');
+  }
+  return await authRepository.resetPasswordForEmail(email.trim());
+}
+
