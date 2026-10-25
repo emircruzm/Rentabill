@@ -6,7 +6,7 @@ import {
   PastSimulation, 
   TeamInvitation, 
   RegisteredDirectoryUser 
-} from '../types';
+} from '../types/index';
 
 export const INITIAL_PRODUCTS: Product[] = [];
 export const INITIAL_SUPPLIERS: Supplier[] = [];

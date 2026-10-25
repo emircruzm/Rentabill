@@ -17,9 +17,17 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"],
+      "@shared/*": ["./src/shared/*"],
+      "@shared": ["./src/shared/index.ts"],
+      "@data/*": ["./src/data/*"],
+      "@data": ["./src/data/index.ts"],
+      "@platform/*": ["./src/platform/*"],
+      "@platform": ["./src/platform/index.ts"],
+      "@application/*": ["./src/application/*"],
+      "@application": ["./src/application/index.ts"],
+      "@presentation/*": ["./src/presentation/*"],
+      "@presentation": ["./src/presentation/index.ts"]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true

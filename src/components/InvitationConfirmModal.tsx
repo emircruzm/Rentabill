@@ -1,7 +1,7 @@
 import React from 'react';
 import { Store, UserCheck, Shield, ShoppingBag, Boxes, Check, X, Sparkles, AlertCircle } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
-import { ROLE_INFO } from '../data/mockData';
+import { ROLE_INFO } from '../shared/constants/roles';
 
 export const InvitationConfirmModal: React.FC = () => {
   const { 

@@ -20,7 +20,7 @@ import {
   RegisteredDirectoryUser,
   UserStoreMembership
 } from '../types';
-import { ROLE_INFO } from '../data/mockData';
+import { ROLE_INFO } from '../shared/constants/roles';
 import { 
   calculateProductMetrics, 
   calculateGlobalMetrics, 

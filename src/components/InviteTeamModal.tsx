@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useInventory } from '../context/InventoryContext';
 import { UserRole } from '../types';
-import { ROLE_INFO } from '../data/mockData';
+import { ROLE_INFO } from '../shared/constants/roles';
 import { formatPeruPhoneDisplay } from '../utils/formatters';
 
 export const InviteTeamModal: React.FC = () => {
