@@ -4,7 +4,11 @@ dist/
 coverage/
 .DS_Store
 *.log
+.gradle/
+*.apk
+*.aab
+android/app/build/
+.env
+.env.*
 .env*
 !.env.example
-*.apk
-android/app/build/
