@@ -196,7 +196,8 @@ De acuerdo con lo detallado en la sección 8 de `docs/ARQUITECTURA.md`:
 
 ## Enlaces a la Documentación
 
-* [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md): Documentación técnica y de arquitectura vigente (especificación detallada de capas, patrones de diseño, diagramas de secuencia y contratos de funciones RPC).
+* [docs/documentacion/00-indice.md](docs/documentacion/00-indice.md): **Documentación Técnica Completa y Guía de Sustentación** (especificación exhaustiva de código, arquitectura en capas, reglas de negocio, modelo ER, funciones RPC y banco de preguntas).
+* [docs/ARQUITECTURA.md](docs/ARQUITECTURA.md): Documento técnico base de arquitectura en capas, patrones de diseño y diagramas de secuencia.
 * Material histórico en [docs/historico/](docs/historico/):
   * [docs/historico/informe_tecnico.md](docs/historico/informe_tecnico.md): Informe técnico anterior (histórico, v3.7.0).
   * [docs/historico/INFORME_TECNICO_v3.1.md](docs/historico/INFORME_TECNICO_v3.1.md): Informe técnico anterior (histórico, v3.1.0).
