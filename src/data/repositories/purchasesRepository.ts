@@ -9,6 +9,8 @@ export interface ProcessPurchaseParams {
   p_credit_days?: number;
   p_supplier_id?: string | null;
   p_notes?: string | null;
+  p_note?: string | null;
+  p_simulation_ids?: string[] | null;
 }
 
 export const purchasesRepository = {
@@ -29,8 +31,11 @@ export const purchasesRepository = {
     return data;
   },
 
-  async payPurchase(purchaseId: string): Promise<any> {
-    const { data, error } = await supabase.rpc('pay_purchase', { p_purchase_id: purchaseId });
+  async payPurchase(storeId: string, purchaseId: string): Promise<any> {
+    const { data, error } = await supabase.rpc('pay_purchase', {
+      p_store_id: storeId,
+      p_purchase_id: purchaseId,
+    });
     if (error) throw error;
     return data;
   },
