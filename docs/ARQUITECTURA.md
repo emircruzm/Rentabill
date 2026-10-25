@@ -1,33 +1,33 @@
 # Arquitectura de Software de Rentabill
-**Sistema Integral de Gestión de Inventarios, Finanzas y Ventas para Microcomercios Minoristas**  
+**Sistema de Gestión de Inventarios, Finanzas y Ventas para Microcomercios Minoristas**  
 *Documento Técnico de Arquitectura en Capas — Proyecto Integrador*
 
 ---
 
 ## 1. Resumen Ejecutivo (Apto para Informe Técnico)
 
-> **Rentabill** implementa una **Arquitectura en 4 Capas con Módulo Transversal Compartido (Shared Layer)**, diseñada bajo los principios de *Clean Architecture*, separación estricta de responsabilidades (*Separation of Concerns* - SoC) y el principio de inversión de dependencias (*Dependency Inversion Principle* - DIP).
+> **Rentabill** implementa una **arquitectura en capas con un módulo transversal compartido (Shared Layer)**, diseñada bajo el principio de separación de responsabilidades (*Separation of Concerns*).
 >
-> La aplicación desacopla totalmente la interfaz visual (React 19 / Tailwind CSS v4) del acceso a datos (Supabase BaaS / PostgreSQL v3.7) y de las capacidades de hardware nativo de dispositivos móviles (Capacitor 8 / Android). Las reglas de negocio y algoritmos de calibración empírica residen en funciones puras y casos de uso atómicos, permitiendo su verificación matemática y pruebas unitarias aisladas sin dependencias de infraestructura ni efectos secundarios de renderizado.
+> La estructura del código organiza la aplicación desacoplando la interfaz de usuario (React 19 / Tailwind CSS v4) del acceso a datos (Supabase BaaS / PostgreSQL v3.7) y de las capacidades nativas del dispositivo móvil (Capacitor / Android). Las reglas de negocio y los cálculos de indicadores residen en funciones de la capa de aplicación, aisladas de la infraestructura y de los componentes visuales.
 >
-> La integridad de las capas se valida de forma automática y determinista mediante una suite de verificación de dependencias AST (`npm run check:layers`), garantizando cero violaciones estructurales en compilación (`tsc --noEmit` y `npm run build`).
+> La integridad de las dependencias entre capas se verifica de manera automatizada mediante el script `scripts/check-layers.mjs`, que comprueba mediante expresiones regulares que ninguna capa importe módulos no permitidos. El proyecto compila sin errores de tipos con TypeScript (`tsc --noEmit`), empaqueta correctamente para producción con Vite (`npm run build`) y cuenta con un script de verificación de fórmulas matemáticas (`scripts/verify-logic.mjs`). El proyecto no implementa un framework de pruebas unitarias automatizadas (como Jest o Vitest).
 
 ---
 
 ## 2. Descripción de las Capas de la Arquitectura
 
-El sistema se estructura en 4 capas concéntricas más un módulo transversal:
+El sistema se estructura en 4 capas más un módulo transversal compartido:
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                   CAPA DE PRESENTACIÓN (UI)                      │
-│     Páginas (10 Views) · Componentes (14) · Rutas y Portales     │
+│     Páginas (10 Views) · Componentes (14) · Modales              │
 └─────────────────────────────────┬────────────────────────────────┘
                                   │ consume
                                   ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                  CAPA DE APLICACIÓN (APPLICATION)                │
-│    Lógica Financiera Pura · Casos de Uso · Estado React / State  │
+│    Lógica Financiera · Casos de Uso · Estado Global              │
 └──────────────┬──────────────────────────────────┬────────────────┘
                │ orquesta                         │ persiste
                ▼                                  ▼
@@ -48,43 +48,43 @@ El sistema se estructura en 4 capas concéntricas más un módulo transversal:
 ```
 
 ### 2.1. Capa de Presentación (`src/presentation/`)
-- **Responsabilidad**: Interfaz de usuario, interacción táctil, animaciones y presentación visual.
+- **Responsabilidad**: Renderizado visual, captura de eventos táctiles, formularios y navegación por pestañas.
 - **Submódulos**:
-  - `pages/`: Las 10 vistas principales de la aplicación (`PulsoView`, `InventarioView`, `POSView`, `HistorialView`, `RestockSimulatorView`, `ProductRegisterView`, `AjustesView`, `AuthView`, `OnboardingView`, `ConnectionErrorView`).
-  - `components/`: Los 14 componentes modulares de soporte (`BottomNavigation`, `Header`, `StoreSelectorModal`, `EditProductModal`, etc.).
-- **Regla Estricta**: No puede importar directamente desde `@data`, `@supabase/*` ni `@capacitor/*`. Solo consume casos de uso, estado de aplicación y adaptadores de plataforma.
+  - `pages/`: Las 10 pantallas de la aplicación (`PulsoView`, `InventarioView`, `POSView`, `HistorialView`, `RestockSimulatorView`, `ProductRegisterView`, `AjustesView`, `AuthView`, `OnboardingView`, `ConnectionErrorView`).
+  - `components/`: 14 componentes y modales auxiliares (`BottomNavigation`, `Header`, `StoreSelectorModal`, `EditProductModal`, `RoleTestBanner`, etc.).
+- **Regla de Dependencias**: No puede importar directamente desde `@data`, `@supabase/*` ni `@capacitor/*`. Se comunica exclusivamente a través de los casos de uso, el contexto de aplicación y los adaptadores de plataforma.
 
 ### 2.2. Capa de Aplicación (`src/application/`)
-- **Responsabilidad**: Orquestar el flujo de datos del negocio, ejecutar operaciones y calcular métricas.
+- **Responsabilidad**: Orquestar el flujo de datos del negocio, ejecutar operaciones y calcular métricas financieras.
 - **Submódulos**:
-  - `logic/`: Algoritmos puramente matemáticos sin dependencias de React ni base de datos (`financialMetrics.ts`, `simulationEngine.ts`). Calcula margen unitario, velocidad diaria, salud financiera (/100) y transición empírica de velocidad estimada a real tras 5 ventas.
-  - `use-cases/`: Funciones asíncronas atómicas por dominio (`sales`, `inventory`, `purchases`, `simulations`, `stores`, `team`, `auth`).
-  - `state/`: Contenedor de estado global (`InventoryContext.tsx`), suscripciones en tiempo real y caché de sesión en memoria.
+  - `logic/`: Funciones de cálculo sin dependencias de React ni de base de datos (`financialMetrics.ts`, `simulationEngine.ts`). Calcula margen unitario, velocidad diaria, salud financiera estimada y transición a datos reales tras acumular 5 ventas.
+  - `use-cases/`: Funciones asíncronas por dominio (`sales`, `inventory`, `purchases`, `simulations`, `stores`, `team`, `auth`).
+  - `state/`: Contenedor de estado global (`InventoryContext.tsx`), suscripciones de red en tiempo real y almacenamiento de sesión en memoria.
 
 ### 2.3. Capa de Datos (`src/data/`)
-- **Responsabilidad**: Persistencia, acceso a backend remoto y sincronización de eventos de red.
+- **Responsabilidad**: Persistencia, comunicación con el backend Supabase y sincronización de cambios.
 - **Submódulos**:
-  - `supabase/`: Inicialización del cliente Supabase (`client.ts`) desacoplado del almacenamiento móvil.
-  - `repositories/`: 11 repositorios especializados (`productsRepository`, `salesRepository`, `purchasesRepository`, `stockRepository`, `storesRepository`, `teamRepository`, `settingsRepository`, `suppliersRepository`, `simulationsRepository`, `storageRepository`, `authRepository`).
-  - `mappers/`: Transformación bidireccional entre filas relacionales de PostgreSQL (snake_case) y entidades de dominio en TypeScript (camelCase).
-  - `realtime/`: Suscripción y desuscripción de canales PostgreSQL mediante `storeRealtime.ts`.
+  - `supabase/`: Inicialización del cliente Supabase (`client.ts`), desacoplado del almacenamiento móvil mediante inyección de dependencias.
+  - `repositories/`: 11 repositorios atómicos (`productsRepository`, `salesRepository`, `purchasesRepository`, `stockRepository`, `storesRepository`, `teamRepository`, `settingsRepository`, `suppliersRepository`, `simulationsRepository`, `storageRepository`, `authRepository`).
+  - `mappers/`: Conversión bidireccional entre filas relacionales de PostgreSQL (snake_case) e interfaces de TypeScript (camelCase).
+  - `realtime/`: Gestión de canales de Supabase Realtime (`storeRealtime.ts`).
 
 ### 2.4. Capa de Plataforma (`src/platform/`)
-- **Responsabilidad**: Aislamiento y adaptación de APIs nativas de Android / hardware y fallback transparente en navegador web.
+- **Responsabilidad**: Adaptar las APIs de plugins nativos de Capacitor y ofrecer una alternativa funcional cuando la aplicación se ejecuta en navegador web.
 - **Submódulos**:
-  - `storage/`: `capacitorPreferencesStorage.ts` implementa `KeyValueStorage` usando `@capacitor/preferences` en Android y `localStorage` en web.
-  - `filesystem/`: `capacitorFilesystem.ts` guarda archivos CSV en la carpeta nativa `Documentos/Rentabill/` o descarga Blob en navegador.
-  - `barcode/`: `capacitorBarcodeScanner.ts` integra Google Play Services Barcode Scanning ML Kit en Android.
-  - `camera/`: `capacitorCamera.ts` captura fotografías convirtiendo base64 a `Blob` listo para subida a Supabase Storage.
-  - `appLifecycle/`: `capacitorAppLifecycle.ts` gestiona el botón físico atrás de Android (`backButton`).
+  - `storage/`: `capacitorPreferencesStorage.ts` implementa el contrato `KeyValueStorage` utilizando `@capacitor/preferences` en Android y `localStorage` en web.
+  - `filesystem/`: `capacitorFilesystem.ts` guarda archivos CSV en la ruta nativa `Documentos/Rentabill/` o inicia la descarga Blob en navegador.
+  - `barcode/`: `capacitorBarcodeScanner.ts` integra el escáner de códigos de barras mediante `@capacitor-mlkit/barcode-scanning` con Google Play Services en Android.
+  - `camera/`: `capacitorCamera.ts` captura fotografías con `@capacitor/camera` y las convierte a objeto `Blob`.
+  - `appLifecycle/`: `capacitorAppLifecycle.ts` gestiona el evento del botón físico atrás en Android (`@capacitor/app`).
 
 ### 2.5. Capa Compartida (`src/shared/`)
-- **Responsabilidad**: Tipos fundamentales, constantes del dominio, contratos de interfaces y formateadores regionales es-PE.
+- **Responsabilidad**: Definición de tipos de datos, constantes globales, contratos e interfaces comunes, y utilidades de formato regional es-PE.
 - **Submódulos**:
-  - `types/`: Entidades del modelo de dominio (`Product`, `SaleRecord`, `StoreConfig`, etc.).
-  - `constants/`: Roles y descripciones operativas (`roles.ts`).
-  - `formatters/`: Formateo en Soles peruanos (`formatCurrency` -> "S/ 1,234.50"), teléfonos (+51) y fechas Perú (`formatDatePeru`).
-  - `storage/`: Interfaz agnóstica `KeyValueStorage`.
+  - `types/`: Definición de interfaces (`Product`, `SaleRecord`, `StoreConfig`, etc.).
+  - `constants/`: Constantes del sistema (`roles.ts`).
+  - `formatters/`: Formateo de moneda en Soles (`formatCurrency` -> "S/ 1,234.50"), teléfonos peruanos (+51) y fechas en zona horaria local.
+  - `storage/`: Contrato `KeyValueStorage`.
 
 ---
 
@@ -109,11 +109,11 @@ graph TD
     subgraph APPLICATION["Capa de Aplicación"]
         UseCases["Casos de Uso (Funciones Atómicas)"]:::app
         State["Estado React (InventoryContext)"]:::app
-        Logic["Lógica Pura de Negocio (Matemáticas)"]:::app
+        Logic["Lógica de Negocio (Matemáticas)"]:::app
     end
 
     subgraph PLATFORM["Capa de Plataforma"]
-        Adapters["Adaptadores Hardware (Storage, Camera, Barcode, FS, Lifecycle)"]:::plat
+        Adapters["Adaptadores (Storage, Camera, Barcode, FS, Lifecycle)"]:::plat
     end
 
     subgraph DATA["Capa de Datos"]
@@ -126,12 +126,12 @@ graph TD
     subgraph SHARED["Capa Compartida"]
         Types["Tipos de Dominio"]:::sha
         Formatters["Formateadores PEN / Fechas"]:::sha
-        Contracts["Contratos e Interfaces (KeyValueStorage)"]:::sha
+        Contracts["Contratos (KeyValueStorage)"]:::sha
     end
 
     subgraph EXTERNAL["Infraestructura Externa"]
-        Hardware["Hardware Móvil / Capacitor Plugins"]:::ext
-        Postgres["PostgreSQL / Supabase Cloud v3.7"]:::ext
+        Hardware["Hardware Móvil / Plugins Capacitor"]:::ext
+        Postgres["PostgreSQL / Supabase BaaS"]:::ext
     end
 
     Pages --> UseCases
@@ -159,7 +159,7 @@ graph TD
     SupabaseClient -.-> Contracts
 ```
 
-### 3.2. Diagrama de Secuencia: Operación Transaccional `processSale`
+### 3.2. Diagrama de Secuencia: Operación de Venta `processSale`
 
 ```mermaid
 sequenceDiagram
@@ -178,20 +178,20 @@ sequenceDiagram
     Note over UC: Valida invariantes (tienda válida, items > 0)
     UC->>Repo: salesRepository.processSale(params)
     Repo->>DB: supabase.rpc('process_sale', payload)
-    Note over DB: Transacción atómica en BD:<br/>- Descuenta stock<br/>- Registra venta y detalle<br/>- Inserta kardex en inventory_movements<br/>- Evalúa calibración si acumula >= 5 ventas
+    Note over DB: Transacción en BD:<br/>- Descuenta stock<br/>- Registra venta y detalle<br/>- Inserta kardex en inventory_movements<br/>- Evalúa calibración si acumula >= 5 ventas
     DB-->>Repo: { sale_id, ticket_number, total_amount, calibrated_items }
     Repo-->>UC: ProcessSaleResult
     UC-->>POS: Éxito en cobro + Vuelto
 
     par Evento en Tiempo Real
-        DB->>RT: INSERT/UPDATE broadcast (sales, stock)
-        RT->>State: subscribeToStoreRealtime handler
+        DB->>RT: Evento de cambio en tablas sales / products
+        RT->>State: Callback de subscribeToStoreRealtime
         State->>State: Actualiza lista de ventas y stock
         State->>Logic: calculateGlobalMetrics(updatedProducts)
         Logic-->>State: Nuevas métricas y Score de Salud (/100)
     end
 
-    POS->>Cajero: Muestra ticket y limpia carrito
+    POS->>Cajero: Muestra confirmación y limpia carrito
 ```
 
 ---
@@ -200,9 +200,8 @@ sequenceDiagram
 
 ```
 src/
-├── app/                          # Raíz de configuración de la app
-│   ├── App.tsx                   # Composition Root: enrutamiento por pestañas y modales
-│   └── main.tsx                  # Bootstrap: inyección de storage y montaje en DOM
+├── App.tsx                       # Raíz de composición: navegación y montaje de modales
+├── main.tsx                      # Bootstrap: inyección de storage e inicialización React
 │
 ├── presentation/                 # CAPA 1: PRESENTACIÓN
 │   ├── pages/                    # 10 Pantallas principales
@@ -229,7 +228,7 @@ src/
 │   └── index.ts                  # Barrel principal de presentación
 │
 ├── application/                  # CAPA 2: APLICACIÓN
-│   ├── logic/                    # LÓGICA PURA (100% matemática, sin React/BD)
+│   ├── logic/                    # LÓGICA DE NEGOCIO (sin React ni BD)
 │   │   ├── financialMetrics.ts   # Margen, velocidad, salud proyectada, calibración
 │   │   ├── simulationEngine.ts   # Retorno de inversión y veredictos del simulador
 │   │   └── index.ts
@@ -251,7 +250,7 @@ src/
 │   │   ├── auth/authUseCases.ts
 │   │   └── index.ts
 │   ├── state/                    # ESTADO GLOBAL
-│   │   ├── InventoryContext.tsx  # Context Provider y hook `useInventory`
+│   │   ├── InventoryContext.tsx  # Context Provider y hook useInventory
 │   │   └── index.ts
 │   └── index.ts                  # Barrel principal de aplicación
 │
@@ -320,7 +319,7 @@ src/
 
 ## 5. Matriz de Reglas de Dependencia
 
-| Capa Origen | Puede Importar de | NO Puede Importar de | Verificación Automática |
+| Capa Origen | Puede Importar de | NO Puede Importar de | Verificación en CI/Local |
 |:---|:---|:---|:---:|
 | **`presentation`** | `application`, `platform`, `shared` | `data`, `@supabase/*`, `@capacitor/*` | `npm run check:layers` |
 | **`application`** | `data` (repos/realtime), `shared`, `platform` (adaptadores) | `presentation`, `@capacitor/*` | `npm run check:layers` |
@@ -328,76 +327,92 @@ src/
 | **`platform`** | `shared`, `@capacitor/*` | `presentation`, `application`, `data`, `@supabase/*` | `npm run check:layers` |
 | **`data`** | `shared`, `@supabase/*` | `presentation`, `application`, `platform`, `@capacitor/*` | `npm run check:layers` |
 | **`shared`** | *(Ninguna capa interna)* | `presentation`, `application`, `platform`, `data`, `@supabase/*`, `@capacitor/*` | `npm run check:layers` |
-| **`Composition Root`** (`main.tsx`, `App.tsx`) | *Todas las capas (inyección y ensamble)* | *(N/A)* | Permitido por diseño |
+| **`Raíz de Composición`** (`src/main.tsx`, `src/App.tsx`) | *Todas las capas (ensamble inicial)* | *(N/A)* | Permitido por diseño |
 
 ---
 
 ## 6. Métricas Reales y Verificadas del Proyecto
 
-| Dimensión | Cantidad Verificada | Detalle Técnico |
+| Dimensión | Cantidad Verificada | Detalle Técnico en el Código |
 |:---|:---:|:---|
 | **Tablas PostgreSQL** | **16** | `stores`, `store_members`, `profiles`, `user_preferences`, `store_settings`, `categories`, `products`, `sales`, `sale_items`, `inventory_movements`, `purchases`, `purchase_items`, `suppliers`, `simulations`, `store_invitations`, `cash_registers` |
-| **Vistas SQL** | **1** | `product_stats` (cálculo de ventas acumuladas y stock) |
+| **Vistas SQL** | **1** | `product_stats` (cálculo consolidado de ventas acumuladas y stock) |
 | **Funciones RPC** | **8** | `process_sale`, `process_purchase`, `pay_purchase`, `adjust_stock`, `create_store`, `switch_store`, `invite_by_code`, `accept_invitation` |
 | **Pantallas (Views)** | **10** | Pulso, Inventario, POS, Historial, Simulador, Registro de Producto, Ajustes, Auth, Onboarding, Error de Conexión |
 | **Modales / UI** | **14** | Selector de Tienda, Editor de Producto, Banner de Prueba de Rol, etc. |
-| **Roles de Usuario** | **3** | `ADMIN` (acceso total), `CAJERO` (solo ventas y cobro), `REPOSITOR` (solo inventario y kardex) |
-| **Plugins Capacitor** | **5** | `@capacitor/core`, `@capacitor/preferences`, `@capacitor/filesystem`, `@capacitor/camera`, `@capacitor-mlkit/barcode-scanning`, `@capacitor/app` |
-| **Módulos JS en Build** | **1,811** | Empaquetados en tiempo récord (< 1 segundo con Vite) |
+| **Roles de Usuario** | **3** | • **ADMIN**: Control total del negocio.<br>• **REPOSITOR**: Gestión del catálogo, proveedores, ajuste manual de stock e ingreso de mercadería (registrar compras); no paga compras pendientes.<br>• **CAJERO**: Exclusivamente ventas y cobro en POS.<br>*(Pagar compras, simulaciones de compras, invitar miembros y ajustes son exclusivos de ADMIN)* |
+| **Plugins de Capacitor** | **5** | 1. `@capacitor/preferences` (almacenamiento clave-valor)<br>2. `@capacitor/filesystem` (guardado de archivos CSV)<br>3. `@capacitor/camera` (captura de fotos)<br>4. `@capacitor-mlkit/barcode-scanning` (escáner con Google Play Services)<br>5. `@capacitor/app` (manejo del botón físico atrás de Android)<br>*(Nota: `@capacitor/core` actúa como el runtime base de la plataforma, no como plugin)* |
 
 ---
 
-## 7. Decisiones de Diseño y Limitaciones Técnicas
+## 7. Decisiones de Diseño
 
 ### 7.1. Desacoplamiento de Persistencia con `KeyValueStorage`
-- **Problema**: El cliente oficial `@supabase/supabase-js` requiere un adaptador de storage para persistir la sesión. Si `src/data/supabase/client.ts` importara `@capacitor/preferences` directamente, la capa de datos violaría las reglas de arquitectura dependiendo de una biblioteca de plataforma móvil.
-- **Solución**: Se definió el contrato `KeyValueStorage` en `src/shared/storage/storage.interface.ts`. En `src/platform/storage/capacitorPreferencesStorage.ts` se implementó el adaptador. En `src/main.tsx` (raíz de composición) se inyecta mediante `setSupabaseStorage(capacitorPreferencesStorage)`. Esto permite que la capa de datos funcione tanto en Android, como en Web o en pruebas automáticas sin cambiar una sola línea de código.
+- **Motivo**: El cliente `@supabase/supabase-js` requiere persistir el token de sesión. Si `src/data/supabase/client.ts` importase `@capacitor/preferences`, la capa de datos dependería de una biblioteca de plataforma móvil nativa.
+- **Implementación**: Se definió la interfaz `KeyValueStorage` en `src/shared/storage/storage.interface.ts`. En `src/platform/storage/capacitorPreferencesStorage.ts` se implementó el adaptador. En `src/main.tsx` (raíz de composición) se inyecta mediante `setSupabaseStorage(capacitorPreferencesStorage)`.
 
-### 7.2. Simulación de Roles con `RoleTestBanner`
-- **Decisión**: Para permitir que el Administrador valide cómo ve la interfaz un empleado con rol `CAJERO` o `REPOSITOR` sin comprometer la seguridad ni alterar permisos en la base de datos, `RoleTestBanner` altera únicamente el estado `user.role` en la memoria del cliente (`InventoryContext`).
-- **Seguridad**: Las políticas RLS de PostgreSQL y las funciones RPC del backend siguen validando criptográficamente el JWT real del usuario autenticado; la UI solo restringe los accesos visuales y pestañas de la navegación.
+### 7.2. Funcionamiento de `RoleTestBanner`
+- **Comportamiento real**: Es un componente visual presente en la parte superior de `App.tsx` que se muestra cuando `user.role !== 'ADMIN'` o cuando `isTestingRole` está activo. Permite al usuario con rol de Administrador cambiar temporalmente la interfaz a la vista de `CAJERO` o `REPOSITOR`.
+- **Alcance**: El cambio de rol ocurre **únicamente en memoria del cliente** modificando la propiedad `user.role` dentro del estado de React (`InventoryContext`). No altera la sesión en la base de datos Supabase, no modifica el registro del usuario en la tabla `store_members` ni guarda datos en el almacenamiento local del dispositivo.
+- **Disponibilidad**: Está presente en el código tanto en entorno de desarrollo como en la compilación para producción (APK).
 
-### 7.3. Generación Nativa de Reportes en CSV (`downloadSalesExcel`)
-- **Decisión**: El botón de descarga genera un archivo en formato CSV con codificación UTF-8 con BOM (`\uFEFF`) en lugar de generar un archivo `.xlsx`.
-- **Razón**: Permite compatibilidad total inmediata con Microsoft Excel en teléfonos móviles sin requerir bibliotecas pesadas de Node como `xlsx` o `exceljs` (ahorrando más de 800 KB en el peso del APK y eliminando vulnerabilidades de dependencias). El adaptador `capacitorFilesystem` lo almacena de forma nativa en `Documentos/Rentabill/`.
+### 7.3. Generación de Reportes en Formato CSV
+- **Motivo**: El reporte se genera con texto plano en formato CSV codificado con UTF-8 BOM (`\uFEFF`), lo que permite su apertura en Microsoft Excel tanto en dispositivos móviles como en computadoras sin necesidad de incluir bibliotecas externas de hojas de cálculo (como `xlsx`).
+- **Ruta de guardado**: Mediante `capacitorFilesystem.ts`, en Android se almacena en la carpeta nativa `Documentos/Rentabill/productos_YYYY-MM-DD.csv`, mientras que en navegadores web se genera la descarga directa mediante un objeto `Blob`.
 
 ---
 
-## 8. Tabla Comparativa: Antes vs. Después de la Reorganización
+## 8. Limitaciones Técnicas Conocidas
 
-| Archivo / Responsabilidad | Ubicación Anterior | Nueva Ubicación Oficial | Beneficio de la Refactorización |
+1. **Concentración de Estado en `InventoryContext.tsx`**:
+   - `src/application/state/InventoryContext.tsx` contiene 2,556 líneas de código. Concentra 11 áreas de responsabilidad (autenticación, multi-tienda, carrito/POS, inventario, kardex, compras, simulaciones, equipo, configuración, suscripciones en tiempo real y estado de modales). Aunque se delegaron las mutaciones hacia casos de uso y repositorios, el estado global no ha sido fragmentado en contextos independientes por dominio.
+
+2. **Dependencia de Conexión a Internet (Sin Cola Offline)**:
+   - La aplicación requiere conectividad activa con el backend Supabase para registrar ventas, compras o movimientos de stock. No implementa una cola local persistente de sincronización (*offline-first sync queue*) para almacenar operaciones sin conexión y sincronizarlas automáticamente al recuperar la red.
+
+3. **Cálculo de Indicadores en el Dispositivo Cliente**:
+   - Los cálculos de margen, rotación, salud proyectada y el resumen global del negocio se procesan en el hilo principal del cliente dentro de `financialMetrics.ts`, iterando sobre el catálogo en memoria. En comercios con miles de productos este cálculo puede provocar caídas en los cuadros por segundo (*frame drops*) en teléfonos de gama de entrada.
+
+4. **Alcance de los Reportes en Pantalla**:
+   - En la interfaz de usuario existe **una única opción de descarga** (en `AjustesView` -> sección "Mis datos": botón *"Descargar reporte de productos y ventas"*), la cual exporta el catálogo de productos con sus ventas y márgenes acumulados (`productos_YYYY-MM-DD.csv`). No existe un reporte o botón separado en pantalla para descargar el historial transaccional de ventas individuales ticket por ticket.
+
+---
+
+## 9. Tabla Comparativa: Antes vs. Después de la Reorganización
+
+| Elemento / Responsabilidad | Ubicación Anterior | Nueva Ubicación Oficial | Estado |
 |:---|:---|:---|:---|
-| **Cálculos Financieros** | `src/utils/calculations.ts` | `src/application/logic/financialMetrics.ts` | Desacoplado de la UI; verificado matemáticamente al 100% |
-| **Simulador de Compras** | Mezclado en vista y cálculo | `src/application/logic/simulationEngine.ts` | Algoritmos de retorno y veredictos en funciones puras |
-| **Acceso a Supabase** | Esparcido en Vistas y Contexto | `src/data/repositories/*.ts` | 11 repositorios atómicos; consultas centralizadas |
-| **Transformación de Filas** | Manual en componentes | `src/data/mappers/*.ts` | Normalización camelCase y tipado seguro |
-| **Suscripción Realtime** | 100+ líneas en Contexto | `src/data/realtime/storeRealtime.ts` | Gestión limpia de suscripciones y cancelaciones |
-| **Almacenamiento Móvil** | Importación dispersa | `src/platform/storage/` | Desacoplado mediante interfaz `KeyValueStorage` |
-| **Escáner de Barras** | `src/utils/barcodeScanner.ts` | `src/platform/barcode/` | Adaptador formal con interfaz y Play Services |
-| **Cámara y Fotos** | En 3 vistas con `atob` y `Blob` | `src/platform/camera/` | Método unificado `capturePhoto()` |
-| **Guardado de Reportes** | Incrustado en Contexto | `src/platform/filesystem/` | Adaptador nativo Android / web aislado |
-| **Botón Físico Atrás** | Directo en `StoreSelectorModal` | `src/platform/appLifecycle/` | Gestión limpia del ciclo de vida nativo |
-| **Vistas Principales** | `src/views/*View.tsx` | `src/presentation/pages/` | Separación clara de páginas y componentes |
-| **Componentes de UI** | `src/components/*.tsx` | `src/presentation/components/` | Reutilización modular sin lógica de BD |
-| **Tipos del Dominio** | `src/types.ts` | `src/shared/types/index.ts` | Ubicación canónica transversal |
-| **Formateadores PEN** | `src/utils/formatters.ts` | `src/shared/formatters/index.ts` | Localización formal para Perú |
+| **Cálculos Financieros** | `src/utils/calculations.ts` | `src/application/logic/financialMetrics.ts` | Desacoplado de la UI; verificado con `verify-logic.mjs` |
+| **Simulador de Compras** | Lógica incrustada en vista | `src/application/logic/simulationEngine.ts` | Algoritmos de retorno y veredictos en funciones puras |
+| **Acceso a Supabase** | Consultas dispersas en vistas y contexto | `src/data/repositories/*.ts` | 11 repositorios atómicos centralizados |
+| **Mapeo de Datos** | Conversión ad-hoc en vistas | `src/data/mappers/*.ts` | Normalización camelCase y tipado |
+| **Suscripción Realtime** | Código disperso en el contexto | `src/data/realtime/storeRealtime.ts` | Suscripción y desuscripción encapsuladas |
+| **Persistencia de Sesión** | Importación directa de preferencias | `src/platform/storage/` | Desacoplado con la interfaz `KeyValueStorage` |
+| **Escáner de Barras** | `src/utils/barcodeScanner.ts` | `src/platform/barcode/` | Adaptador formal con interfaz y módulo ML Kit |
+| **Cámara** | Código duplicado con `atob` en 3 vistas | `src/platform/camera/` | Adaptador con función `capturePhoto()` unificada |
+| **Descarga de CSV** | Código en el contexto con `@capacitor/filesystem` | `src/platform/filesystem/` | Adaptador nativo Android y fallback web |
+| **Ciclo de Vida / Botón Atrás** | Llamada directa a `@capacitor/app` en modal | `src/platform/appLifecycle/` | Adaptador con función `onBackButton()` |
+| **Páginas Principales** | `src/views/*View.tsx` | `src/presentation/pages/` | Vistas agrupadas en la capa de presentación |
+| **Componentes Visuales** | `src/components/*.tsx` | `src/presentation/components/` | Componentes desacoplados de infraestructura |
+| **Tipos de Dominio** | `src/types.ts` | `src/shared/types/index.ts` | Módulo compartido |
+| **Formateadores** | `src/utils/formatters.ts` | `src/shared/formatters/index.ts` | Formatos de moneda (PEN) y fechas |
 
 ---
 
-## 9. Comandos de Verificación del Sistema
+## 10. Procedimiento de Verificación Técnica
 
-Para verificar la arquitectura y compilar el proyecto en cualquier momento:
+Los siguientes comandos permiten verificar el estado del código:
 
 ```bash
-# 1. Comprobación estricta de reglas de dependencia entre capas:
+# 1. Comprobación de reglas de importación entre capas (análisis por expresiones regulares):
 npm run check:layers
 
-# 2. Comprobación de tipos en todo el árbol TypeScript:
+# 2. Comprobación estricta de tipos de TypeScript:
 npm run lint
 
-# 3. Verificación de equivalencia de fórmulas matemáticas del negocio:
+# 3. Comprobación de equivalencia matemática de fórmulas de métricas financieras:
 npx tsx scripts/verify-logic.mjs
 
-# 4. Compilación del bundle de producción web para Capacitor:
+# 4. Generación del bundle de producción web:
 npm run build
 ```
