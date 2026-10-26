@@ -1,6 +1,6 @@
 # Seguridad y Row Level Security (RLS) en la Base de Datos
 
-El backend de Rentabill implementa un modelo de aislamiento multi-inquilino (*multi-tenant*) estricto mediante **Row Level Security (RLS)** y **FORCE ROW LEVEL SECURITY** en PostgreSQL 17 (`supabase/rentabill_schema_v3.7.sql:1711-1995 (funciones auxiliares en líneas 766-798)`).
+El backend de Rentabill implementa un modelo de aislamiento multi-inquilino (*multi-tenant*) estricto mediante **Row Level Security (RLS)** y **FORCE ROW LEVEL SECURITY** en PostgreSQL 17 (`supabase/rentabill_schema_v3.7.sql:1711-1994 (funciones auxiliares en líneas 766-798)`).
 
 ---
 

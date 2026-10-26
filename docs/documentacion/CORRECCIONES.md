@@ -71,7 +71,7 @@ Todas las discrepancias identificadas fueron corregidas en los archivos correspo
 | `diccionario-de-datos.md` | movement_type, quantity_delta, stock_before, stock_after | type, quantity, previous_stock, new_stock en inventory_movements | `supabase/rentabill_schema_v3.7.sql:312-350` |
 | `diccionario-de-datos.md` | purchase_number, status, total_amount en purchases | total, paid_at TIMESTAMPTZ en purchases (sin status ni purchase_number) | `supabase/rentabill_schema_v3.7.sql:219-249` |
 | `diccionario-de-datos.md` | Precios con NUMERIC(12,3) | Precios y costos con NUMERIC(12,2); existencias con NUMERIC(12,3) | `supabase/rentabill_schema_v3.7.sql:185-218` |
-| `seguridad-rls.md` | Líneas rentabill_schema_v3.7.sql:750-1120 | Líneas reales de RLS 1711-1995 y helpers 766-798 | `supabase/rentabill_schema_v3.7.sql` |
+| `seguridad-rls.md` | Líneas rentabill_schema_v3.7.sql:750-1120 | Líneas reales de RLS 1711-1994 y helpers 766-798 | `supabase/rentabill_schema_v3.7.sql` |
 | `seguridad-rls.md` | created_by = auth.uid() en sales RLS | user_id = (SELECT auth.uid()) | `supabase/rentabill_schema_v3.7.sql:1823` |
 | `funciones-rpc.md` | Líneas RPC 1130-1990 | Líneas reales RPC 762-1708 con rangos exactos por función | `supabase/rentabill_schema_v3.7.sql` |
 | `funciones-rpc.md` | purchases.status = PAGADA en pay_purchase | purchases.paid_at = now() en pay_purchase | `supabase/rentabill_schema_v3.7.sql:1612` |
@@ -105,7 +105,7 @@ Todas las discrepancias identificadas fueron corregidas en los archivos correspo
   1. `store_settings`: la clave primaria es `store_id` (no tiene UUID `id` separado); columna es `daily_goal_percent` (meta porcentual) y no existe `max_credit_days`.
   2. `store_members`: la clave primaria es compuesta `PRIMARY KEY (user_id, store_id)` y la columna temporal es `joined_at` (no existen `id`, `created_at`, `updated_at`).
   3. `purchases`: la columna de monto es `total` (no `total_amount`); la liquidación se registra con `paid_at TIMESTAMPTZ` (no existe columna `status` ni `purchase_number`).
-  4. `purchase_items`: `subtotal` es una columna generada (`GENERATED ALWAYS AS (ROUND(quantity * unit_cost, 2)) STORED`) y no incluye columna propia `store_id`.
+  4. `purchase_items`: `subtotal` es una columna generada (`GENERATED ALWAYS AS (ROUND(quantity * unit_cost, 2)) STORED`) y SÍ incluye `store_id` (forma parte de las FK compuestas).
   5. `sales`: el usuario cajero se almacena en la columna `user_id` (no `created_by`).
   6. `suppliers`: columnas reales son `payment_condition`, `credit_days`, `contact_phone`, `rubro`, `archived_at` (no existen `ruc`, `contact_name` ni `notes`).
   7. `create_store` RPC: sus parámetros en SQL son `name`, `type`, `currency` sin prefijo `p_`.

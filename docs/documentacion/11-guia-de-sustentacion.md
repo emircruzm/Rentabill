@@ -68,7 +68,7 @@ Este documento constituye la guía de defensa técnica del equipo ante las pregu
 | **Motor de Simulación de Compras** | `src/application/logic/simulationEngine.ts:1-83` |
 | **Cobro Atómico (processSale)** | `src/application/use-cases/sales/processSaleUseCase.ts:1-12` |
 | **Transacción SQL de Venta** | `supabase/rentabill_schema_v3.7.sql:1066-1340` |
-| **Políticas de RLS y Aislamiento** | `supabase/rentabill_schema_v3.7.sql:1711-1995` |
+| **Políticas de RLS y Aislamiento** | `supabase/rentabill_schema_v3.7.sql:1711-1994` |
 | **Matriz de Permisos RBAC** | `src/shared/constants/roles.ts:1-36` |
 | **Adaptador Nativo de Preferencias**| `src/platform/storage/capacitorPreferencesStorage.ts:1-30` |
 | **Escáner de Códigos de Barras** | `src/platform/barcode/capacitorBarcodeScanner.ts:1-159` |
