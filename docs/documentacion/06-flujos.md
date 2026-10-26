@@ -73,7 +73,7 @@ sequenceDiagram
     Historial->>UC: payPurchaseUseCase(storeId, purchaseId)
     UC->>Repo: purchasesRepository.payPurchase(storeId, purchaseId)
     Repo->>DB: supabase.rpc('pay_purchase', { p_store_id, p_purchase_id })
-    Note over DB: Valida rol ADMIN y actualiza status = 'PAGADA'
+    Note over DB: Valida rol ADMIN y actualiza paid_at = now(), updated_at = now()
     DB-->>Repo: { success: true, purchase_id }
     Repo-->>UC: Confirmacion
     UC-->>Historial: Actualiza estado a PAGADA en la interfaz
@@ -97,7 +97,7 @@ sequenceDiagram
     UC->>Repo: stockRepository.adjustStock(params)
     Repo->>DB: supabase.rpc('adjust_stock', payload)
     Note over DB: Actualiza stock en products e inserta kardex (AJUSTE)
-    DB-->>Repo: { product_id, stock_before: 10, stock_after: 7 }
+    DB-->>Repo: { product_id, previous_stock: 10, new_stock: 7 }
     Repo-->>UC: Exito
     UC-->>Modal: Notifica ajuste y refresca catalogo
 ```
@@ -187,7 +187,7 @@ sequenceDiagram
     Usuario->>Auth: Ingresa correo y contrasena
     Auth->>UC: loginUseCase(email, password)
     UC->>Repo: authRepository.signIn(email, password)
-    Repo->>SupaAuth: supabase.auth.signInWithPassword(...)
+    Repo->>SupaAuth: authRepository.signInWithPassword(...)
     SupaAuth-->>Repo: Retorna Session y Tokens JWT
     Repo->>Storage: setItem('sb-token', sessionData)
     Repo-->>UC: Usuario autenticado
@@ -209,15 +209,15 @@ sequenceDiagram
     participant DB as PostgreSQL (Supabase Cloud)
 
     Admin->>Ajustes: Selecciona "Probar modo Cajero"
-    Ajustes->>State: setTestingRole('CAJERO')
+    Ajustes->>State: setUserRole('CAJERO')
     Note over State: isTestingRole = true, rol local = CAJERO
     State->>State: Monta RoleTestBanner ("MODO PRUEBA: los cambios NO se guardan")
     Admin->>POS: Ejecuta una venta simulada
-    POS->>Guard: runWrite({ isTestingRole, onSimulate, onExecute })
+    POS->>Guard: runWrite({ isTestingRole, onSimulate, onRealWrite, notifyTestMode })
     Note over Guard: isTestingRole === true:<br/>1. INTERCEPTA (no llama a la red)<br/>2. Ejecuta onSimulate() en memoria local<br/>3. Dispara toast "Modo prueba: nada se guardo"
     Guard--xDB: NINGUNA sentencia SQL ni RPC viaja al servidor
     Guard-->>POS: Retorna venta simulada exitosa
     Admin->>Ajustes: Presiona "Salir de prueba" en el Banner
-    Ajustes->>State: exitTestingRole()
+    Ajustes->>State: exitRoleTest()
     Note over State: isTestingRole = false, restaura rol real ADMIN
 ```

@@ -1,6 +1,6 @@
 # Capa de Presentación: Pantallas Principales (Views)
 
-La capa de presentación alberga las 10 pantallas de la aplicación en `src/presentation/pages/`, exportadas a través del barrel `src/presentation/pages/index.ts:1-12`. Cada pantalla interactúa con el estado global mediante el hook `useInventory()` y delega mutaciones a la capa de aplicación.
+La capa de presentación alberga las 10 pantallas de la aplicación en `src/presentation/pages/`, exportadas a través del barrel `src/presentation/pages/index.ts:1-11`. Cada pantalla interactúa con el estado global mediante el hook `useInventory()` y delega mutaciones a la capa de aplicación.
 
 ---
 
@@ -39,8 +39,8 @@ La capa de presentación alberga las 10 pantallas de la aplicación en `src/pres
   * Buscador rápido y catálogo táctil con escaneo de código de barras mediante cámara (`capacitorBarcodeScanner`).
   * Carrito lateral o flotante con cálculo en tiempo real de subtotales, alerta preventiva de falta de existencias y widget de pesaje (`BulkScaleWidget`) para productos a granel vendidos por kilogramos (`kg`).
   * Panel de cobro: Selector de métodos (`efectivo`, `tarjeta`, `yape`, `plin`, `transferencia`, `qr`).
-  * En efectivo: Botón "Exacto" por defecto (vuelto 0), billetes rápidos (S/ 10, 20, 50, 100) y cálculo automático de vuelto en Soles.
-* **Estado y Casos de Uso:** Consume `cart`, `addToCart`, `removeFromCart`, `updateCartQuantity`, `clearCart`. Invoca `processSaleUseCase` (`src/application/use-cases/sales/processSaleUseCase.ts:1-75`).
+  * En efectivo: Botón "Exacto" por defecto (vuelto 0), billetes rápidos (S/ 10, 20, 50) y botón "Exacto" y cálculo automático de vuelto en Soles.
+* **Estado y Casos de Uso:** Consume `cart`, `addToCart`, `removeFromCart`, `updateCartQuantity`, `clearCart`. Invoca `checkout` vía `InventoryContext` (`src/application/state/InventoryContext.tsx:79`) y `processSaleUseCase` (`src/application/use-cases/sales/processSaleUseCase.ts:1-12`).
 * **Control por Roles:** Permitido para `ADMIN` y `CAJERO`. Denegado para `REPOSITOR`.
 * **Estados Vacíos:** Carrito vacío muestra ilustración de bolsa de compras vacía y mensaje para agregar productos escaneando o seleccionando del catálogo.
 
@@ -48,10 +48,11 @@ La capa de presentación alberga las 10 pantallas de la aplicación en `src/pres
 
 ## 4. HistorialView (`src/presentation/pages/HistorialView.tsx:1-480`)
 
-* **Propósito y Contenido:** Centro de auditoría transaccional con 3 pestañas:
+* **Propósito y Contenido:** Centro de auditoría transaccional con 4 pestañas:
   1. **Ventas:** Lista cronológica de tickets emitidos, detalle de partidas, medio de pago, fecha/hora y cajero emisor.
   2. **Compras:** Facturas y compras ingresadas a proveedores, clasificadas en Contado o Crédito, estado de liquidación (`PENDIENTE`, `PAGADA`) y botón para amortizar/pagar deuda mediante `payPurchaseUseCase`.
   3. **Movimientos (Kardex):** Registro inmutable de transacciones de almacén (`inventory_movements`), con tipo (`VENTA`, `COMPRA`, `AJUSTE`), delta de cantidad y motivo (`note`).
+  4. **Simulaciones:** Histórico de proyecciones evaluadas para seguimiento del retorno proyectado.
 * **Estado y Casos de Uso:** Consume `sales`, `purchases`, `inventoryMovements`. Invoca `payPurchaseUseCase` y `adjustStockUseCase`.
 * **Control por Roles:**
   * `ADMIN`: Visualiza todas las ventas, todas las compras, el kardex y puede liquidar deudas de compra.
@@ -65,7 +66,7 @@ La capa de presentación alberga las 10 pantallas de la aplicación en `src/pres
 
 * **Propósito y Contenido:** Herramienta interactiva para proyectar compras antes de gastar capital.
   * Permite seleccionar productos del catálogo, ingresar cantidad a comprar y costo unitario negociado.
-  * Procesa mediante `simulationEngine.ts:calculateSimulation`: capital a invertir, ganancia neta estimada, margen proyectado, días de recuperación de inversión y veredicto inteligente (`CONVENIENTE`, `REGULAR`, `NO_CONVENIENTE`).
+  * Procesa mediante `simulationEngine.ts:calculateSimulation`: capital a invertir, ganancia neta estimada, margen proyectado, días de recuperación de inversión y veredicto inteligente (`CONVIENE`, `RIESGOSO`, `NO_CONVIENE`).
   * Botón para confirmar y convertir la simulación en una compra real de mercadería.
 * **Estado y Casos de Uso:** Consume catálogo y proveedores. Invoca `createSimulationUseCase` y `confirmSimulationPurchaseUseCase`.
 * **Control por Roles:** Exclusivo de `ADMIN`. Bloqueado para `CAJERO` y `REPOSITOR`.
@@ -88,11 +89,11 @@ La capa de presentación alberga las 10 pantallas de la aplicación en `src/pres
 ## 7. AjustesView (`src/presentation/pages/AjustesView.tsx:1-580`)
 
 * **Propósito y Contenido:** Panel administrativo de la tienda:
-  * Perfil del usuario autenticado (código público de 6 caracteres `user_code`, correo, teléfono).
+  * Perfil del usuario autenticado (código público de 9 caracteres `user_code` (formato `RENT-XXXX`), correo, teléfono).
   * Datos del negocio (nombre, rubro, imagen de código QR de cobro para Yape/Plin).
   * Lista de colaboradores del equipo con roles activos (`ADMIN`, `CAJERO`, `REPOSITOR`).
   * Generación de invitaciones mediante código de usuario.
-  * Botón "Descargar reporte de productos y ventas" en CSV (`useInventory.downloadProductsReport`).
+  * Botón "Descargar reporte de productos y ventas" en CSV (`useInventory.downloadSalesExcel`).
   * Panel "Modo de Prueba de Roles" para previsualizar la interfaz como Cajero o Repositor sin persistir cambios.
 * **Estado y Casos de Uso:** Invoca `inviteMemberUseCase`, `respondInvitationUseCase`, `capacitorFilesystem` y gestión de sesión con `authUseCases`.
 * **Control por Roles:** Las secciones de equipo, descarga CSV y prueba de roles son exclusivas de `ADMIN`.
@@ -119,7 +120,7 @@ La capa de presentación alberga las 10 pantallas de la aplicación en `src/pres
 
 ---
 
-## 10. ConnectionErrorView (`src/presentation/pages/ConnectionErrorView.tsx:1-110`)
+## 10. ConnectionErrorView (`src/presentation/pages/ConnectionErrorView.tsx:1-51`)
 
 * **Propósito y Contenido:** Pantalla de contingencia visual cuando falla la conexión con Supabase o el dispositivo se encuentra sin red.
   * Muestra ilustración de desconexión y mensaje descriptivo amigable.

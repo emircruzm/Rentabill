@@ -18,7 +18,7 @@ Los 14 componentes y modales auxiliares de la interfaz residen en `src/presentat
 ### 1.2. CalibrationModal (`src/presentation/components/CalibrationModal.tsx:1-95`)
 * **Propósito:** Modal de felicitación y confirmación cuando uno o más artículos alcanzan 5 ventas y transicionan automáticamente de velocidad `ESTIMADO` a `REAL`.
 * **Props:** `calibratedProducts: Product[]`, `isOpen: boolean`, `onClose: () => void`.
-* **Consumidores:** `src/App.tsx` (activado reactivamente tras el retorno de `processSale`).
+* **Consumidores:** `src/App.tsx` (activado reactivamente tras el retorno de `checkout`).
 
 ### 1.3. EditProductModal (`src/presentation/components/EditProductModal.tsx:1-380`)
 * **Propósito:** Formulario modal para actualizar precios, costos, código de barras, fotos y existencias de un producto, así como ejecutar su archivado lógico.
@@ -42,12 +42,12 @@ Los 14 componentes y modales auxiliares de la interfaz residen en `src/presentat
 * **Consumidores:** `AjustesView.tsx`, `OnboardingView.tsx`.
 
 ### 1.7. InviteTeamModal (`src/presentation/components/InviteTeamModal.tsx:1-160`)
-* **Propósito:** Formulario para que un Administrador vincule un colaborador ingresando su código público de usuario (6 caracteres alfanuméricos) y seleccionando su rol asignado (`CAJERO`, `REPOSITOR`, `ADMIN`).
+* **Propósito:** Formulario para que un Administrador vincule un colaborador ingresando su código público de usuario (formato `RENT-XXXX`, 9 caracteres alfanuméricos) y seleccionando su rol asignado (`CAJERO`, `REPOSITOR`, `ADMIN`).
 * **Props:** `isOpen: boolean`, `onClose: () => void`, `onInvite: (userCode: string, role: UserRole) => Promise<void>`.
 * **Consumidores:** `AjustesView.tsx`.
 * **Casos de Uso Invocados:** `inviteMemberUseCase`.
 
-### 1.8. LogoutConfirmModal (`src/presentation/components/LogoutConfirmModal.tsx:1-75`)
+### 1.8. LogoutConfirmModal (`src/presentation/components/LogoutConfirmModal.tsx:1-45`)
 * **Propósito:** Diálogo de confirmación para prevenir cierres involuntarios de sesión de usuario en el mostrador.
 * **Props:** `isOpen: boolean`, `onClose: () => void`, `onConfirm: () => void`.
 * **Consumidores:** `AjustesView.tsx`, `Header.tsx`.
@@ -62,7 +62,7 @@ Los 14 componentes y modales auxiliares de la interfaz residen en `src/presentat
 * **Props:** `isOpen: boolean`, `onClose: () => void`, `user: ProfileUser | null`.
 * **Consumidores:** `Header.tsx`.
 
-### 1.11. RoleTestBanner (`src/presentation/components/RoleTestBanner.tsx:1-65`)
+### 1.11. RoleTestBanner (`src/presentation/components/RoleTestBanner.tsx:1-43`)
 * **Propósito:** Banner de advertencia visual ubicado en el tope superior de la pantalla cuando el Administrador activa el modo de prueba de roles (`isTestingRole === true`).
 * **Mensaje:** `"MODO PRUEBA: los cambios NO se guardan"`.
 * **Props:** `role: UserRole`, `onExitTest: () => void`.
@@ -74,7 +74,7 @@ Los 14 componentes y modales auxiliares de la interfaz residen en `src/presentat
 * **Props:** `isOpen: boolean`, `onClose: () => void`, `stores: Store[]`, `currentStoreId: string`, `onSelectStore: (id: string) => void`, `onCreateStore: (data: NewStoreData) => void`.
 * **Consumidores:** `src/App.tsx`.
 
-### 1.13. ToastNotification (`src/presentation/components/ToastNotification.tsx:1-85`)
+### 1.13. ToastNotification (`src/presentation/components/ToastNotification.tsx:1-41`)
 * **Propósito:** Componente de notificaciones flotantes temporizadas para retroalimentación instantánea ante operaciones exitosas, advertencias o aviso del modo prueba ("Modo prueba: nada se guardó").
 * **Props:** `toasts: ToastItem[]`, `onDismiss: (id: string) => void`.
 * **Consumidores:** `src/App.tsx`.

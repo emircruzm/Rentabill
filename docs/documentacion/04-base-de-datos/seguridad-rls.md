@@ -1,6 +1,6 @@
 # Seguridad y Row Level Security (RLS) en la Base de Datos
 
-El backend de Rentabill implementa un modelo de aislamiento multi-inquilino (*multi-tenant*) estricto mediante **Row Level Security (RLS)** y **FORCE ROW LEVEL SECURITY** en PostgreSQL 17 (`supabase/rentabill_schema_v3.7.sql:750-1120`).
+El backend de Rentabill implementa un modelo de aislamiento multi-inquilino (*multi-tenant*) estricto mediante **Row Level Security (RLS)** y **FORCE ROW LEVEL SECURITY** en PostgreSQL 17 (`supabase/rentabill_schema_v3.7.sql:1711-1995 (funciones auxiliares en líneas 766-798)`).
 
 ---
 
@@ -59,7 +59,7 @@ Para evaluar membresías sin degradar el rendimiento ni provocar recursión infi
 | **`products`** | `SELECT` | Miembros de la Tienda | `public.is_store_member(store_id)` |
 | **`products`** | `INSERT/UPDATE` | `ADMIN`, `REPOSITOR` | `public.has_store_role(store_id, ARRAY['ADMIN', 'REPOSITOR'])` |
 | **`products`** | `DELETE` | `ADMIN` | `public.has_store_role(store_id, ARRAY['ADMIN'])` |
-| **`sales`** | `SELECT` | Miembros | `ADMIN` ve todas las ventas; `CAJERO` solo sus ventas (`created_by = auth.uid()`) |
+| **`sales`** | `SELECT` | Miembros | `ADMIN` ve todas las ventas; `CAJERO` solo sus ventas (`user_id = (SELECT auth.uid())`) |
 | **`sales`** | `INSERT` | Vía RPC / Cajero | Delegado de forma atómica a la función RPC `process_sale` |
 | **`sale_items`** | `SELECT` | Miembros de la Tienda | `public.is_store_member(store_id)` |
 | **`purchases`** | `SELECT` | Miembros de la Tienda | `public.is_store_member(store_id)` |

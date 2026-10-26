@@ -38,7 +38,7 @@ flowchart TD
     end
 
     subgraph Backend ["Servicios Cloud (Supabase / PostgreSQL)"]
-        DB[(PostgreSQL 17 - 16 Tablas + 1 Vista)]
+        DB[(PostgreSQL Supabase - 16 Tablas + 1 Vista)]
         RPC[8 Funciones RPC Atómicas]
         StorageBucket[Supabase Storage]
     end
@@ -125,4 +125,4 @@ flowchart TD
 | **`shared`** | *(Ninguna capa interna)* | `presentation`, `application`, `platform`, `data`, `@supabase/*`, `@capacitor/*` | `npm run check:layers` |
 | **Raíz de Ensamble** (`main.tsx`, `App.tsx`)| *Todas las capas* | *(N/A)* | Permitido por diseño |
 
-El cumplimiento de esta matriz es auditado automáticamente mediante el script `scripts/check-layers.mjs`, garantizando cero dependencias circulares o saltos de capa ilegales.
+El cumplimiento de esta matriz es auditado automáticamente mediante el script `scripts/check-layers.mjs`, verificando reglas de importación entre capas o saltos de capa ilegales.

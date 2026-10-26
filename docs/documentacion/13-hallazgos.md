@@ -30,8 +30,8 @@ En cumplimiento estricto de la regla número 1, **ninguno de los hallazgos descr
 ## 2. Puntos de Concentración Arquitectónica
 
 ### 2.1. Monolito de Estado en `InventoryContext.tsx`
-* **Ubicación:** `src/application/state/InventoryContext.tsx:1-2961`
-* **Diagnóstico:** El archivo concentra **2,961 líneas de código** y asume 11 dominios de responsabilidad simultáneos (autenticación, multi-tienda, catálogo, POS/carrito, ventas, compras, kardex, simulaciones, equipo, realtime y modales).
+* **Ubicación:** `src/application/state/InventoryContext.tsx:1-2962`
+* **Diagnóstico:** El archivo concentra **2,962 líneas de código** y asume 11 dominios de responsabilidad simultáneos (autenticación, multi-tienda, catálogo, POS/carrito, ventas, compras, kardex, simulaciones, equipo, realtime y modales).
 * **Riesgo:** Alta propensión a colisiones en Git durante el trabajo en equipo concurrente y renderizados innecesarios en componentes que solo consumen una porción pequeña del estado.
 
 ---
@@ -39,14 +39,20 @@ En cumplimiento estricto de la regla número 1, **ninguno de los hallazgos descr
 ## 3. Limitaciones Funcionales y de Rendimiento
 
 ### 3.1. Procesamiento de Métricas en el Hilo Principal del Cliente
-* **Ubicación:** `src/application/logic/financialMetrics.ts:180-280`
+* **Ubicación:** `src/application/logic/financialMetrics.ts:1-212`
 * **Diagnóstico:** Las funciones `calculateProductMetrics` y `calculateGlobalMetrics` iteran sincrónicamente sobre todo el catálogo en memoria dentro del hilo principal de JavaScript (*main thread*).
 * **Riesgo:** En comercios con catálogos extensos (más de 1,500 productos), el recálculo reactivo ante filtros o ventas puede producir congelamientos perceptibles de interfaz (*frame drops*) en teléfonos Android de gama de entrada.
 
 ### 3.2. Ausencia de Cola Fuera de Línea (*Offline-First Sync Queue*)
-* **Ubicación:** `src/application/use-cases/sales/processSaleUseCase.ts:1-75`
+* **Ubicación:** `src/application/use-cases/sales/processSaleUseCase.ts:1-12`
 * **Diagnóstico:** La operación de cobro requiere conexión activa inmediata con Supabase para invocar la RPC `process_sale`. Si la bodega experimenta microcortes de internet durante el cobro, la venta es rechazada sin posibilidad de encolarse localmente para sincronización posterior.
 
 ### 3.3. Alcance Limitado de la Exportación de Reportes
-* **Ubicación:** `src/presentation/pages/AjustesView.tsx:400-430` y `src/platform/filesystem/capacitorFilesystem.ts:1-70`
+* **Ubicación:** `src/presentation/pages/AjustesView.tsx:400-430` y `src/platform/filesystem/capacitorFilesystem.ts:1-64`
 * **Diagnóstico:** La interfaz provee una única opción de descarga en la sección de Ajustes ("Descargar reporte de productos y ventas"), la cual exporta el catálogo consolidado de productos con sus ventas y márgenes acumulados (`productos_YYYY-MM-DD.csv`). No existe en la interfaz una opción para descargar el histórico desglosado de tickets de venta individuales.
+
+
+### 3.4. Contradicción de Mensajes en Interfaz durante Modo Prueba (POSView vs. writeGuard)
+* **Ubicación:** `src/presentation/pages/POSView.tsx:927` y `src/application/logic/writeGuard.ts:58`
+* **Diagnóstico:** Al completar una venta simulada en mostrador cuando el Administrador tiene activo el modo prueba (`isTestingRole === true`), la guardia interceptora `writeGuard.ts` emite el toast de advertencia reglamentario: *"Modo prueba: nada se guardó"*. Sin embargo, el modal de confirmación de ticket en `POSView.tsx:927` renderiza estáticamente para el cliente el texto: *"Operación guardada en tu Historial de Negocio."*.
+* **Impacto:** Provoca una contradicción visual perceptible durante pruebas o sustentaciones: el modal indica que la operación fue guardada mientras el toast y el banner advierten que no se guardó nada en la base de datos.

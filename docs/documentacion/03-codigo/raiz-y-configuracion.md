@@ -6,7 +6,7 @@ Este documento detalla los archivos de arranque del sistema, los mecanismos de c
 
 ## 1. Puntos de Entrada y Raíz de Composición
 
-### 1.1. `src/main.tsx:1-25` (Bootstrap del Sistema)
+### 1.1. `src/main.tsx:1-16` (Bootstrap del Sistema)
 * **Propósito:** Punto de entrada de la aplicación en el navegador o webview móvil.
 * **Inyección de Infraestructura:** Antes de montar React, inyecta el adaptador nativo de preferencias en el cliente de datos:
   ```typescript
@@ -17,7 +17,7 @@ Este documento detalla los archivos de arranque del sistema, los mecanismos de c
   ```
 * **Montaje del DOM:** Inicializa el árbol de componentes dentro de `<div id="root"></div>` envolviéndolo en `<InventoryProvider>`.
 
-### 1.2. `src/App.tsx:1-180` (Controlador de Navegación y Modales)
+### 1.2. `src/App.tsx:1-91` (Controlador de Navegación y Modales)
 * **Propósito:** Componente raíz visual que coordina la navegación y la apertura de modales.
 * **Control de Navegación por Rol:**
   * Si el usuario no tiene sesión activa, renderiza `AuthView`.

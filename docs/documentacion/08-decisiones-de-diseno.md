@@ -51,8 +51,8 @@ Este documento registra en formato **Architecture Decision Record (ADR)** las 10
 * **Decisión:** Habilitar y forzar Row Level Security (`FORCE ROW LEVEL SECURITY`) en todas las tablas del esquema público, subordinando toda consulta al contexto de membresía `is_store_member(store_id)`.
 * **Alternativas consideradas:** Confiar en filtros de frontend o implementar un proxy intermedio con endpoints de backend.
 * **Consecuencias y Justificación:**
-  * **[DOCUMENTADO]** `supabase/rentabill_schema_v3.7.sql:750-760`: Provee aislamiento multi-tenant a nivel de fila directamente en el motor de base de datos.
-  * **[DOCUMENTADO]** `supabase/rentabill_schema_v3.7.sql:710-740`: Las funciones de seguridad se definieron como `SECURITY DEFINER` con `search_path = ''` para evitar recursión infinita y ataques de inyección de rutas.
+  * **[DOCUMENTADO]** `supabase/rentabill_schema_v3.7.sql:1715-1746`: Provee aislamiento multi-tenant a nivel de fila directamente en el motor de base de datos.
+  * **[DOCUMENTADO]** `supabase/rentabill_schema_v3.7.sql:766-798`: Las funciones de seguridad se definieron como `SECURITY DEFINER` con `search_path = ''` para evitar recursión infinita y ataques de inyección de rutas.
 
 ---
 
@@ -62,7 +62,7 @@ Este documento registra en formato **Architecture Decision Record (ADR)** las 10
 * **Alternativas consideradas:** Redux Toolkit, Zustand o particionar en 5 contextos independientes (AuthContext, StoreContext, CartContext, CatalogContext, RealtimeContext).
 * **Consecuencias y Justificación:**
   * **[DOCUMENTADO]** `docs/ARQUITECTURA.md:406-408`: Simplifica el consumo en los componentes mediante un único hook unificado `useInventory()`.
-  * **[DOCUMENTADO]** `docs/ARQUITECTURA.md:406-408`: Genera la limitación técnica conocida de concentrar 2,961 líneas de código y 11 áreas de responsabilidad en un solo archivo.
+  * **[DOCUMENTADO]** `docs/ARQUITECTURA.md:406-408`: Genera la limitación técnica conocida de concentrar 2,962 líneas de código y 11 áreas de responsabilidad en un solo archivo.
   * **[DEDUCIDO]** Se prefirió Context API nativo frente a Redux para evitar dependencias externas adicionales en el empaquetado final.
 
 ---

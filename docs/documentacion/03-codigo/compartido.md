@@ -22,7 +22,7 @@ export type PaymentCondition = 'contado' | 'credito';
 
 ### 1.2. Entidades Principales
 * **`Product`:** Identificador, `storeId`, `name`, `barcode`, `costPrice`, `salePrice`, `stock`, `unit`, `estimatedSpeed`, `unitsSold`, `salesCount`, `archivedAt`, `imageUrl`.
-* **`Sale` & `SaleItem`:** Datos del ticket de venta, método de pago, monto total, desglose de partidas y snapshots inmutables del costo unitario (`costPriceAtSale`) y nombre al momento de la venta.
+* **`Sale` & `SaleItem`:** Datos del ticket de venta, método de pago, monto total, desglose de partidas y snapshots inmutables del costo unitario (`unitCost`), precio unitario (`unitPrice`) y nombre (`productName`).
 * **`Purchase` & `PurchaseItem`:** Cabecera y partidas de compra de mercadería a proveedores con condición de pago y días de crédito.
 * **`InventoryMovement`:** Registro de kardex de existencias (saldo anterior, cantidad modificada, saldo nuevo, motivo y usuario responsable).
 * **`Store`:** Sucursal con propietario (`ownerId`), nombre, rubro comercial, moneda oficial (`PEN`) y QR de cobro.
@@ -31,7 +31,7 @@ export type PaymentCondition = 'contado' | 'credito';
 
 ---
 
-## 2. Catálogo de Roles y Matriz de Permisos (`src/shared/constants/roles.ts:1-50`)
+## 2. Catálogo de Roles y Matriz de Permisos (`src/shared/constants/roles.ts:1-36`)
 
 Define el catálogo de permisos funcionales y las políticas de acceso para cada rol:
 
@@ -104,7 +104,7 @@ Traduce códigos de error de Supabase Auth (`invalid_grant`, `email_not_confirme
 
 ---
 
-## 4. Contratos de Almacenamiento Agnóstico (`src/shared/storage/storage.interface.ts:1-12`)
+## 4. Contratos de Almacenamiento Agnóstico (`src/shared/storage/storage.interface.ts:1-10`)
 
 Define el contrato `KeyValueStorage`:
 * Permite que la capa de datos almacene tokens de sesión sin acoplarse a bibliotecas específicas del navegador (`localStorage`) o del sistema móvil nativo (`@capacitor/preferences`).

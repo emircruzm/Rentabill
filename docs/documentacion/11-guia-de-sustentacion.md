@@ -31,17 +31,17 @@ Este documento constituye la guía de defensa técnica del equipo ante las pregu
 ### P4: Si dos cajeros cobran el último paquete de arroz al mismo tiempo, ¿cómo evitan el stock negativo?
 * **Respuesta:**
   El cobro no se realiza mediante peticiones REST separadas desde el teléfono, sino mediante la función RPC transaccional `process_sale` en PostgreSQL. Dentro de la función, la consulta de existencias bloquea la fila mediante `FOR UPDATE` o valida `stock >= quantity`; si no hay stock suficiente, emite un `RAISE EXCEPTION` revirtiendo toda la transacción (*rollback*). Además, la tabla `products` tiene el constraint `CHECK (stock >= 0)`.
-* **Dónde demostrarlo:** `supabase/rentabill_schema_v3.7.sql:1260-1320`.
+* **Dónde demostrarlo:** `supabase/rentabill_schema_v3.7.sql:1066-1340 (FOR UPDATE en línea 1083; CHECK (stock >= 0) en línea 195)`.
 
 ### P5: ¿Cómo evitan que un producto que ya tuvo ventas rompa la integridad referencial al eliminarse?
 * **Respuesta:**
   Mediante **archivado lógico** (*soft delete*). La función `deleteProductUseCase` no ejecuta un `DELETE` físico si existen registros contables asociados; en su lugar, asigna la marca temporal `archived_at = now()`. Para que el comerciante pueda reutilizar el código de barras en un producto nuevo, el índice único de código de barras es parcial: `UNIQUE (store_id, barcode) WHERE archived_at IS NULL`.
-* **Dónde demostrarlo:** `supabase/rentabill_schema_v3.7.sql:240-250` y `src/application/use-cases/inventory/deleteProductUseCase.ts:15-30`.
+* **Dónde demostrarlo:** `supabase/rentabill_schema_v3.7.sql:459` (índice parcial) y `src/application/use-cases/inventory/deleteProductUseCase.ts:1-10`.
 
-### P6: ¿Por qué desnormalizaron `cost_price_at_sale` en `sale_items` en lugar de consultar siempre `products.cost_price`?
+### P6: ¿Por qué desnormalizaron `unit_cost` y `product_name` en `sale_items` en lugar de consultar siempre `products`?
 * **Respuesta:**
-  Para preservar la inmutabilidad histórica del margen. Si en enero se vende un producto que costó S/ 3.00 a un precio de S/ 4.00, y en marzo el proveedor sube el costo a S/ 3.80, consultar `products.cost_price` alteraría retroactivamente la ganancia de enero. Al guardar un snapshot inmutable en `sale_items.cost_price_at_sale`, el balance contable histórico queda congelado.
-* **Dónde demostrarlo:** `supabase/rentabill_schema_v3.7.sql:350-365`.
+  Para preservar la inmutabilidad histórica del margen. Si en enero se vende un producto que costó S/ 3.00 a un precio de S/ 4.00, y en marzo el proveedor sube el costo a S/ 3.80, consultar `products.cost_price` alteraría retroactivamente la ganancia de enero. Al guardar un snapshot en `sale_items.unit_cost` y `sale_items.product_name`, el balance contable histórico queda congelado.
+* **Dónde demostrarlo:** `supabase/rentabill_schema_v3.7.sql:294-311`.
 
 ---
 
@@ -64,15 +64,15 @@ Este documento constituye la guía de defensa técnica del equipo ante las pregu
 | Funcionalidad / Concepto | Archivo y Línea de Referencia |
 | :--- | :--- |
 | **Cálculo de Margen y Velocidad** | `src/application/logic/financialMetrics.ts:1-120` |
-| **Puntaje de Salud Financiera** | `src/application/logic/financialMetrics.ts:180-240` |
-| **Motor de Simulación de Compras** | `src/application/logic/simulationEngine.ts:1-90` |
-| **Cobro Atómico (processSale)** | `src/application/use-cases/sales/processSaleUseCase.ts:1-75` |
-| **Transacción SQL de Venta** | `supabase/rentabill_schema_v3.7.sql:1200-1400` |
-| **Políticas de RLS y Aislamiento** | `supabase/rentabill_schema_v3.7.sql:750-1120` |
-| **Matriz de Permisos RBAC** | `src/shared/constants/roles.ts:1-50` |
+| **Puntaje de Salud Financiera** | `src/application/logic/financialMetrics.ts:140-175` |
+| **Motor de Simulación de Compras** | `src/application/logic/simulationEngine.ts:1-83` |
+| **Cobro Atómico (processSale)** | `src/application/use-cases/sales/processSaleUseCase.ts:1-12` |
+| **Transacción SQL de Venta** | `supabase/rentabill_schema_v3.7.sql:1066-1340` |
+| **Políticas de RLS y Aislamiento** | `supabase/rentabill_schema_v3.7.sql:1711-1995` |
+| **Matriz de Permisos RBAC** | `src/shared/constants/roles.ts:1-36` |
 | **Adaptador Nativo de Preferencias**| `src/platform/storage/capacitorPreferencesStorage.ts:1-30` |
-| **Escáner de Códigos de Barras** | `src/platform/barcode/capacitorBarcodeScanner.ts:1-60` |
-| **Exportación de Reporte CSV** | `src/platform/filesystem/capacitorFilesystem.ts:1-70` |
+| **Escáner de Códigos de Barras** | `src/platform/barcode/capacitorBarcodeScanner.ts:1-159` |
+| **Exportación de Reporte CSV** | `src/platform/filesystem/capacitorFilesystem.ts:1-64` |
 
 ---
 

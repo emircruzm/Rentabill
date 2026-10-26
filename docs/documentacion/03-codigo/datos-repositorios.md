@@ -1,6 +1,6 @@
 # Capa de Datos: Repositorios, Mappers, Cliente Supabase y Realtime
 
-La capa de datos (`src/data/`) centraliza la persistencia y la comunicación con el backend en la nube (Supabase BaaS / PostgreSQL 17). Está compuesta por 11 repositorios atómicos, mappers de conversión snake_case a camelCase, un cliente de Supabase desacoplado, un traductor de errores SQLSTATE y un gestor de canales Realtime.
+La capa de datos (`src/data/`) centraliza la persistencia y la comunicación con el backend en la nube (Supabase BaaS / PostgreSQL (Supabase)). Está compuesta por 11 repositorios atómicos, mappers de conversión snake_case a camelCase, un cliente de Supabase desacoplado, un traductor de errores SQLSTATE y un gestor de canales Realtime.
 
 ---
 
@@ -8,17 +8,17 @@ La capa de datos (`src/data/`) centraliza la persistencia y la comunicación con
 
 | Repositorio | Métodos Principales | Tablas o RPCs Involucradas | Retorno y Propósito |
 | :--- | :--- | :--- | :--- |
-| **`productsRepository`** | `getProducts(storeId)`<br>`createProduct(data)`<br>`updateProduct(id, data)`<br>`archiveProduct(id)` | Tablas: `products`, vista `product_stats` | `Product[]` / `Product`. Administra el catálogo y la consulta de existencias con estadísticas de ventas acumuladas. |
-| **`salesRepository`** | `processSale(params)`<br>`getSales(storeId)`<br>`getSaleById(id)` | RPC: `process_sale`<br>Tablas: `sales`, `sale_items` | `ProcessSaleResult`. Ejecuta el cobro transaccional en servidor y recupera tickets de venta. |
-| **`purchasesRepository`** | `processPurchase(params)`<br>`payPurchase(storeId, purchaseId)`<br>`getPurchases(storeId)` | RPC: `process_purchase`<br>RPC: `pay_purchase`<br>Tablas: `purchases`, `purchase_items` | Registra compras a proveedores, liquida cuentas por pagar a crédito y lista facturas. |
-| **`stockRepository`** | `adjustStock(params)`<br>`getInventoryMovements(storeId)` | RPC: `adjust_stock`<br>Tabla: `inventory_movements` | Ejecuta mermas o ingresos manuales de existencias y provee la auditoría del kardex. |
-| **`storesRepository`** | `createStore(name, type)`<br>`switchStore(storeId)`<br>`getUserStores()`<br>`updateStore(id, data)` | RPC: `create_store`<br>RPC: `switch_store`<br>Tablas: `stores`, `store_members` | Crea negocios, conmuta el contexto activo de tienda y recupera sucursales vinculadas. |
-| **`teamRepository`** | `getStoreMembers(storeId)`<br>`inviteByCode(storeId, code, role)`<br>`acceptInvitation(token)`<br>`getPendingInvitations()` | RPC: `invite_by_code`<br>RPC: `accept_invitation`<br>Tablas: `store_members`, `store_invitations` | Consulta el equipo, emite invitaciones por código alfanumérico y procesa su aceptación. |
-| **`settingsRepository`** | `getStoreSettings(storeId)`<br>`updateStoreSettings(storeId, data)`<br>`getUserPreferences()` | Tablas: `store_settings`, `user_preferences` | Administra la meta diaria de ganancia, días de crédito y preferencias de interfaz. |
-| **`suppliersRepository`** | `getSuppliers(storeId)`<br>`createSupplier(data)`<br>`updateSupplier(id, data)` | Tabla: `suppliers` | Directorio de proveedores de mercadería (nombre, contacto, teléfono, RUC). |
-| **`simulationsRepository`**| `getSimulations(storeId)`<br>`createSimulation(data)`<br>`deleteSimulation(id)` | Tabla: `simulations` | Historial de proyecciones prospectivas de reabastecimiento calculadas. |
-| **`storageRepository`** | `uploadProductImage(storeId, file)` | Supabase Storage: Bucket `product-images` | URL pública de la fotografía subida para asociarla al producto. |
-| **`authRepository`** | `signIn(email, pass)`<br>`signUp(email, pass, meta)`<br>`signOut()`<br>`getProfile(userId)` | Supabase Auth (`auth.users`) y Tabla `profiles` | Autenticación, creación de perfil y recuperación de código público `user_code`. |
+| **`productsRepository`** | `getByStoreId(storeId)`<br>`ensureCategory(storeId, name)`<br>`create(storeId, categoryId, data, initialStock)`<br>`update(storeId, productId, updates)`<br>`archive(storeId, productId)` | Tablas: `products`, `categories`, vista `product_stats` | Administra el catálogo y consulta de existencias con estadísticas calculadas. |
+| **`salesRepository`** | `getByStoreId(storeId, limit)`<br>`processSale(params)` | RPC: `process_sale`<br>Tablas: `sales`, `sale_items` | Ejecuta cobro transaccional en servidor y recupera tickets de venta emitidos. |
+| **`purchasesRepository`** | `getByStoreId(storeId)`<br>`processPurchase(params)`<br>`payPurchase(storeId, purchaseId)` | RPC: `process_purchase`<br>RPC: `pay_purchase`<br>Tablas: `purchases`, `purchase_items` | Registra compras a proveedores y liquida compras a crédito. |
+| **`stockRepository`** | `getMovements(storeId, limit)`<br>`adjustStock(params)`<br>`insertMovement(storeId, movement)` | RPC: `adjust_stock`<br>Tabla: `inventory_movements` | Ejecuta mermas o ajustes manuales y audita movimientos de kardex. |
+| **`storesRepository`** | `getStoreById(storeId)`<br>`updateStore(storeId, updates)`<br>`createStore(name, type, currency)`<br>`switchStore(storeId)`<br>`getUserStores(userId)` | RPC: `create_store`<br>RPC: `switch_store`<br>Tablas: `stores`, `store_members` | Administra negocios y membresías del usuario. |
+| **`teamRepository`** | `getMembersByStoreId(storeId)`<br>`getInvitationsByStoreId(storeId)`<br>`inviteByCode(storeId, userCode, role)`<br>`cancelInvitation(id)`<br>`acceptInvitation(token)`<br>`respondInvitation(id, action)`<br>`changeMemberRole(storeId, userId, role)`<br>`removeMember(storeId, userId)`<br>`findUserById(userId)` | RPC: `invite_by_code`<br>RPC: `accept_invitation`<br>Tablas: `store_members`, `store_invitations`, `profiles` | Administra colaboradores, invitaciones por código y roles del equipo. |
+| **`settingsRepository`** | `getSettings(storeId, userId)`<br>`updateStoreSettings(storeId, updates)`<br>`updateUserPreferences(userId, updates)` | Tablas: `store_settings`, `user_preferences` | Configuración de meta diaria porcentual y preferencias de usuario. |
+| **`suppliersRepository`** | `getByStoreId(storeId)`<br>`create(storeId, supplier)` | Tabla: `suppliers` | Directorio de proveedores de mercadería. |
+| **`simulationsRepository`**| `getByStoreId(storeId, suppliersMap)`<br>`create(storeId, sim)`<br>`markApplied(simulationId)` | Tabla: `simulations` | Registro y seguimiento de proyecciones prospectivas de compra. |
+| **`storageRepository`** | `uploadFile(bucket, path, file)` | Supabase Storage: Buckets `product-images`, `store-logos` | Sube archivos de imagen y retorna su URL pública accesible. |
+| **`authRepository`** | `signInWithPassword(email, pass)`<br>`signUp(email, pass, name, role, phone)`<br>`signOut()`<br>`getSession()`<br>`getUser()`<br>`getProfile(userId)`<br>`updateProfile(userId, updates)` | Supabase Auth (`auth.users`) y Tabla `profiles` | Autenticación, sesión y perfil de comerciante. |
 
 ---
 
@@ -49,8 +49,10 @@ Para preservar el estándar idiomático de JavaScript/TypeScript en la aplicaci�
 | `cash_given` | `cashGiven` | `number \| undefined` |
 | `change_given` | `changeGiven` | `number \| undefined` |
 | `product_id` / `productId` | `productId` | `string` (UUID) |
-| `cost_price_at_sale` | `costPriceAtSale` | `number` (Snapshot inmutable) |
-| `product_name_snapshot` | `productNameSnapshot` | `string` (Snapshot inmutable) |
+| `unit_cost` | `unitCost` | `number` (Snapshot de costo unitario) |
+| `product_name` | `productName` | `string` (Snapshot de nombre del producto) |
+| `unit_price` | `unitPrice` | `number` (Precio de venta unitario) |
+| `profit` | `profit` | `number` (Ganancia unitaria calculada) |
 
 ---
 
@@ -76,7 +78,7 @@ Intercepta los errores emitidos por PostgreSQL (SQLSTATE) y los traduce a mensaj
 
 ---
 
-## 4. Gestor de Suscripciones en Tiempo Real (`src/data/realtime/storeRealtime.ts:1-90`)
+## 4. Gestor de Suscripciones en Tiempo Real (`src/data/realtime/storeRealtime.ts:1-62`)
 
 Administra la conexión bidireccional WebSocket con el motor de réplica de Supabase:
 * Conecta al canal dinámico `store-changes-${storeId}`.

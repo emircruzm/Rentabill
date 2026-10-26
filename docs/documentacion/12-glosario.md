@@ -7,7 +7,7 @@ Este glosario define los conceptos económicos, financieros y de ingeniería de 
 ## 1. Conceptos de Negocio y Finanzas de Microcomercio
 
 * **Dinero Invertido (Capital de Trabajo en Inventario):** Suma total del costo de adquisición de todas las existencias físicas presentes en la bodega ($\sum \text{stock} \times \text{costPrice}$).
-* **Dinero Parado (Capital Inmovilizado):** Porción del capital invertido atrapada en artículos con velocidad de venta nula o muy baja, o cuyo inventario estimado supera los 45 días de existencias. Representa liquidez congelada que no genera retorno.
+* **Dinero Parado (Capital Inmovilizado):** Porción del capital invertido atrapada en artículos con velocidad de rotación lenta (`isSlow`). En modo `REAL` corresponde a productos con velocidad menor a 0.5 unidades por día (`dailyVelocity < 0.5`); en modo `ESTIMADO`, a productos con velocidad declarada `LENTO`.
 * **Margen Unitario Bruto:** Diferencia monetaria entre el precio de venta final al público y el costo de adquisición unitario otorgado por el proveedor ($P_{\text{venta}} - P_{\text{costo}}$).
 * **Velocidad Diaria de Rotación:** Número promedio de unidades de un producto vendidas por día. En modo `ESTIMADO` se infiere de la estimación semanal; en modo `REAL` se calcula dividiendo las unidades vendidas entre los días transcurridos.
 * **Calibración de Catálogo:** Mecanismo automático por el cual un producto que acumula $\ge 5$ tickets de venta o 30 días de vida deja de utilizar estimaciones heurísticas y pasa a calcular sus indicadores con datos reales de mostrador.

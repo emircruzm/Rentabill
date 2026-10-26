@@ -7,7 +7,7 @@ El estado global de la aplicación está centralizado en `src/application/state/
 ## 1. Análisis Técnico y Diagnóstico de Responsabilidades
 
 > [!NOTE] Diagnóstico de Tamaño y Alcance
-> El archivo `InventoryContext.tsx` contiene **2,961 líneas de código**. Actúa como el centro neurálgico de la reactividad del cliente, integrando 11 áreas de responsabilidad que en futuras iteraciones arquitectónicas deberían modularizarse en contextos particionados por dominio.
+> El archivo `InventoryContext.tsx` contiene **2,962 líneas de código**. Actúa como el centro neurálgico de la reactividad del cliente, integrando 11 áreas de responsabilidad que en futuras iteraciones arquitectónicas deberían modularizarse en contextos particionados por dominio.
 
 ### Las 11 Responsabilidades Concentradas:
 1. **Sesión y Autenticación:** Estado del usuario autenticado, perfil, inicialización y eventos `SIGNED_IN` / `SIGNED_OUT`.

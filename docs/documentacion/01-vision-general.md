@@ -24,17 +24,17 @@ El sistema implementa un modelo de control de acceso basado en roles por sucursa
 
 ## 3. Módulos y Pantallas del Sistema
 
-La interfaz de usuario está compuesta por 10 pantallas principales organizadas en `src/presentation/pages/index.ts:1-12`:
+La interfaz de usuario está compuesta por 10 pantallas principales organizadas en `src/presentation/pages/index.ts:1-11`:
 
 1. **Pulso (`PulsoView.tsx`):** Tablero de control financiero. Visualiza el Puntaje de Salud Financiera (0 a 100), dinero invertido en existencias, dinero parado en productos sin rotación, margen proyectado y productos estrella vs. productos críticos.
 2. **Inventario (`InventarioView.tsx`):** Catálogo de productos con búsqueda en tiempo real, filtros por categoría y velocidad, visualización de días de stock restante, margen unitario y acceso al ajuste manual de stock.
-3. **Vender / POS (`POSView.tsx`):** Terminal punto de venta optimizado para mostrador rápido, escaneo de códigos de barra, selección de artículos al peso (`kg`), carrito y cobro multi-método (Efectivo con cálculo de vuelto o "Exacto", Yape, Plin, Tarjeta, Transferencia, QR).
-4. **Historial (`HistorialView.tsx`):** Bitácora transaccional dividida en tickets de venta, compras a proveedores y kardex completo de movimientos de almacén (`inventory_movements`). Permite pagar compras pendientes a crédito.
+3. **Vender / POS (`POSView.tsx`):** Terminal punto de venta optimizado para mostrador rápido, escaneo de códigos de barra, selección de artículos al peso (`kg`), carrito y cobro multi-método (Efectivo con billetes rápidos S/ 10, 20, 50 o "Exacto", Yape, Plin, Tarjeta, Transferencia, QR).
+4. **Historial (`HistorialView.tsx`):** Bitácora transaccional dividida en 4 pestañas: Ventas, Movimientos (Kardex), Simulaciones y Compras. Permite pagar compras pendientes a crédito.
 5. **Simulador de Compras (`RestockSimulatorView.tsx`):** Herramienta prospectiva que calcula el retorno proyectado de inversión, días de recuperación de capital y veredicto de conveniencia antes de realizar un pedido a proveedores.
 6. **Registro de Producto (`ProductRegisterView.tsx`):** Formulario de alta de productos con lectura de código de barras mediante cámara, carga de imagen, asignación de costos, precios y velocidad estimada inicial.
 7. **Ajustes (`AjustesView.tsx`):** Panel de configuración de usuario, cambio de nombre de negocio, visualización de miembros del equipo, generación de invitaciones por código, enlace de QR de pago y descarga del reporte CSV de inventario.
 8. **Autenticación (`AuthView.tsx`):** Pantalla de inicio de sesión, registro de nuevos comerciantes y formulario de restablecimiento de contraseña vía correo electrónico.
-9. **Onboarding (`OnboardingView.tsx`):** Asistente paso a paso de bienvenida para nuevos usuarios donde registran su primera tienda y su código de usuario público.
+9. **Onboarding (`OnboardingView.tsx`):** Asistente paso a paso de bienvenida para nuevos usuarios donde registran su primera tienda y su código de usuario público (formato `RENT-XXXX`, 9 caracteres alfanuméricos).
 10. **Error de Conexión (`ConnectionErrorView.tsx`):** Vista de bloqueo visual ante fallas de red o indisponibilidad de Supabase, con botón de reintento automático.
 
 ---
@@ -77,12 +77,12 @@ La siguiente matriz documenta la trazabilidad completa desde la interfaz de usua
 
 | Funcionalidad del Negocio | Pantalla / Modal (UI) | Caso de Uso (`src/application/`) | Repositorio (`src/data/`) | Tabla / RPC en BD |
 | :--- | :--- | :--- | :--- | :--- |
-| **Diagnóstico Financiero** | `PulsoView.tsx` | `financialMetrics.ts:calculateGlobalMetrics` | `productsRepository.getProducts` | `products`, `product_stats` |
+| **Diagnóstico Financiero** | `PulsoView.tsx` | `financialMetrics.ts:calculateGlobalMetrics` | `productsRepository.getByStoreId` | `products`, `product_stats` |
 | **Consulta de Catálogo** | `InventarioView.tsx` | N/A (Consumo reactivo de estado) | `productsRepository.getProducts` | `products`, `product_stats` |
 | **Ajuste Manual de Stock** | `InventarioView.tsx`, `HistorialView.tsx` | `adjustStockUseCase.ts` | `stockRepository.adjustStock` | RPC `adjust_stock` |
-| **Registro de Producto** | `ProductRegisterView.tsx` | `registerProductUseCase.ts` | `productsRepository.createProduct` | `products` |
+| **Registro de Producto** | `ProductRegisterView.tsx` | `registerProductUseCase.ts` | `productsRepository.create` | `products` |
 | **Edición de Producto** | `EditProductModal.tsx` | `updateProductUseCase.ts` | `productsRepository.updateProduct` | `products` |
-| **Archivado / Baja Producto**| `EditProductModal.tsx` | `deleteProductUseCase.ts` | `productsRepository.archiveProduct` | `products` (`archived_at`) |
+| **Archivado / Baja Producto**| `EditProductModal.tsx` | `deleteProductUseCase.ts` | `productsRepository.archive` | `products` (`archived_at`) |
 | **Subida de Imagen Producto**| `ProductRegisterView.tsx` | `uploadImageUseCase.ts` | `storageRepository.uploadProductImage` | Storage Bucket `product-images` |
 | **Cobro y Venta en POS** | `POSView.tsx` | `processSaleUseCase.ts` | `salesRepository.processSale` | RPC `process_sale` |
 | **Auditoría de Ventas** | `HistorialView.tsx` | N/A (Consumo reactivo de estado) | `salesRepository.getSales` | `sales`, `sale_items` |
@@ -97,4 +97,4 @@ La siguiente matriz documenta la trazabilidad completa desde la interfaz de usua
 | **Aceptar Invitación** | `AjustesView.tsx` | `respondInvitationUseCase.ts` | `teamRepository.acceptInvitation` | RPC `accept_invitation` |
 | **Inicio de Sesión** | `AuthView.tsx` | `authUseCases.ts:loginUseCase` | `authRepository.signIn` | Supabase Auth (`auth.users`) |
 | **Registro de Usuario** | `AuthView.tsx` | `authUseCases.ts:registerUseCase`| `authRepository.signUp` | Supabase Auth (`profiles`) |
-| **Exportación CSV** | `AjustesView.tsx` | `useInventory.downloadProductsReport` | `capacitorFilesystem.writeFile` | Archivo nativo CSV (UTF-8 BOM) |
+| **Exportación CSV** | `AjustesView.tsx` | `useInventory.downloadSalesExcel` | `capacitorFilesystem.writeFile` | Archivo nativo CSV (UTF-8 BOM) |

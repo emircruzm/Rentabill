@@ -1,6 +1,6 @@
 # Índice General de la Documentación Técnica de Rentabill
 
-Esta suite documental contiene la especificación exhaustiva, fundamentada y verificada del sistema **Rentabill** (código fuente, arquitectura de software y base de datos relacional). Su objetivo principal es servir como material de referencia y sustento técnico ante la evaluación académica del Curso Integrador (Universidad Tecnológica del Perú - UTP, 2026).
+Esta suite documental contiene la especificación técnica verificada contra el código fuente del sistema **Rentabill** (código fuente, arquitectura de software y base de datos relacional). Su objetivo principal es servir como material de referencia y sustento técnico ante la evaluación académica del Curso Integrador (Universidad Tecnológica del Perú - UTP, 2026).
 
 ---
 
@@ -46,7 +46,7 @@ La documentación está organizada de forma modular en 15 documentos temáticos:
 
 ### Reglas, Flujos, Seguridad y Sustentación
 * [05-reglas-de-negocio.md](05-reglas-de-negocio.md): Catálogo de todas las reglas de negocio del sistema y su capa de aplicación (UI, Application, Database).
-* [06-flujos.md](06-flujos.md): Diagramas de secuencia en Mermaid de los 8 flujos transaccionales clave del negocio.
+* [06-flujos.md](06-flujos.md): Diagramas de secuencia en Mermaid de los 9 flujos transaccionales clave del negocio.
 * [07-seguridad.md](07-seguridad.md): Esquema de seguridad en 3 niveles (interfaz, aplicación, base de datos), anon key, gestión de credenciales y modo prueba.
 * [08-decisiones-de-diseno.md](08-decisiones-de-diseno.md): Decisiones arquitectónicas en formato ADR (Architecture Decision Record) categorizadas como `[DOCUMENTADO]` o `[DEDUCIDO]`.
 * [09-pruebas-y-verificacion.md](09-pruebas-y-verificacion.md): Comandos de validación estática, verificación matemática de fórmulas y límites de cobertura.
@@ -55,6 +55,7 @@ La documentación está organizada de forma modular en 15 documentos temáticos:
 * [12-glosario.md](12-glosario.md): Definición formal de conceptos de negocio y términos de ingeniería de software utilizados.
 * [13-hallazgos.md](13-hallazgos.md): Bitácora de incoherencias, código inalcanzado o áreas de mejora identificadas en el código fuente.
 * [14-preguntas-abiertas.md](14-preguntas-abiertas.md): Consolidado de aspectos `[DEDUCIDO]` y puntos pendientes de confirmación técnica con el equipo de desarrollo.
+* [CORRECCIONES.md](CORRECCIONES.md): Bitácora de verificación y corrección técnica exhaustiva frente al código fuente y esquema SQL v3.7.
 
 ---
 

@@ -4,7 +4,7 @@ El submódulo `src/application/logic/` concentra todas las fórmulas matemática
 
 ---
 
-## 1. Métricas Financieras del Negocio (`src/application/logic/financialMetrics.ts:1-320`)
+## 1. Métricas Financieras del Negocio (`src/application/logic/financialMetrics.ts:1-212`)
 
 Rentabill traduce las existencias físicas y el flujo transaccional en indicadores económicos de liquidez.
 
@@ -44,7 +44,9 @@ Rentabill traduce las existencias físicas y el flujo transaccional en indicador
 
 ### 1.5. Puntaje de Salud Financiera (`calculateHealthScore`, 0 a 100)
 * **Fórmula de ponderación:**
-  $$\text{Puntaje} = (\text{Calidad de Márgenes} \times 0.60) + (\text{Rotación y Variedad sin Estancamiento} \times 0.40)$$
+  $\text{Puntaje} = (\text{marginHealthPercent} \times 0.60) + (\text{diversificationScore} \times 0.40)$
+* **Componente 1 (`marginHealthPercent`, 60% peso):** Porcentaje de productos con rentabilidad diaria calculada $\ge 1.0\%$ (`dailyProfitPercent >= 1.0`).
+* **Componente 2 (`diversificationScore`, 40% peso):** $100 - \text{capitalLockedInSlowPercent}$, donde `capitalLockedInSlowPercent` es el porcentaje del capital total inmovilizado en productos de rotación lenta.
 * **Estados y Semáforo:**
   * $\ge 80$: `OPTIMAL` (Verde). Capital trabajando eficientemente con rotación activa.
   * $50 - 79$: `STABLE` (Ámbar). Negocio operativo con oportunidades de liquidar productos lentos.
@@ -52,35 +54,55 @@ Rentabill traduce las existencias físicas y el flujo transaccional en indicador
 
 ### 1.6. Capital Invertido vs. Capital Parado
 * **Dinero Invertido Total:** $\sum (\text{stock} \times \text{costPrice})$.
-* **Dinero Parado:** $\sum (\text{stock} \times \text{costPrice})$ correspondiente a productos cuya velocidad diaria es baja o nula (`LENTO` o días de inventario $> 45$ días).
+* **Dinero Parado (`totalTrappedCapital`):** $\sum (\text{stock} \times \text{costPrice})$ de productos clasificados como lentos (`isSlow`). Un producto es lento si:
+  * En modo `REAL`: su velocidad diaria es menor a 0.5 unid/día (`dailyVelocity < 0.5`).
+  * En modo `ESTIMADO`: su velocidad declarada es `LENTO` (`estimatedSpeed === 'LENTO'`).
+  * Sin clasificar pero con ventas: `dailyVelocity < 0.5` tras al menos 15 días de creación.
 
 ---
 
-## 2. Motor de Simulación de Compras (`src/application/logic/simulationEngine.ts:1-180`)
+## 2. Motor de Simulación de Compras (`src/application/logic/simulationEngine.ts:1-83`)
 
 Permite proyectar el retorno financiero antes de emitir una orden de compra:
 * **Parámetros de entrada:** Catálogo actual, producto a reabastecer, cantidad sugerida y costo negociado.
 * **Cálculo de Retorno de Inversión (ROI):**
   $$\text{ROI} = \frac{\text{Ganancia Bruta Proyectada}}{\text{Inversión en Compra}} \times 100$$
 * **Días de Venta Estimados:** $\text{días} = \frac{\text{Cantidad Comprada}}{\text{dailyVelocity}}$.
-* **Veredicto Automático:**
-  * `CONVENIENTE`: Margen $> 25\%$ y recuperación en menos de 21 días.
-  * `REGULAR`: Margen entre $15\%$ y $25\%$ o recuperación entre 21 y 45 días.
-  * `NO_CONVENIENTE`: Margen $< 15\%$ o retorno superior a 45 días (alto riesgo de dinero parado).
+* **Veredicto Automático (`computeSimulationVerdict` en `simulationEngine.ts:65-82`):**
+  * Para compras a **crédito**:
+    * `CONVIENE`: Días de venta $\le \text{días de crédito}$ (`daysToSell <= creditDays`).
+    * `RIESGOSO`: Días de venta $\le \text{días de crédito} + 15$ (`daysToSell <= creditDays + 15`).
+    * `NO_CONVIENE`: Días de venta $> \text{días de crédito} + 15$.
+  * Para compras al **contado**:
+    * `CONVIENE`: Días de venta $\le 15$ días.
+    * `RIESGOSO`: Días de venta entre $16$ y $30$ días (`daysToSell <= 30`).
+    * `NO_CONVIENE`: Días de venta $> 30$ días.
 
 ---
 
-## 3. Guardia de Escritura y Simulación para Modo Prueba (`src/application/logic/writeGuard.ts:1-65`)
+## 3. Guardia de Escritura y Simulación para Modo Prueba (`src/application/logic/writeGuard.ts:1-66`)
 
 ### Propósito y Mecanismo Único de Control
 El sistema permite a un Administrador previsualizar la interfaz como Cajero o Repositor. Para garantizar que ninguna prueba altere la base de datos de producción, `runWrite` actúa como interceptor mandatorio:
 
 ```typescript
-export async function runWrite<T>(params: {
+export interface WriteGuardOptions<T> {
   isTestingRole: boolean;
+  actionDescription?: string;
   onSimulate: () => T | Promise<T>;
-  onExecute: () => Promise<T>;
-  notify: (msg: string) => void;
+  onRealWrite: () => Promise<T>;
+  notifyTestMode: (title: string, message: string) => void;
+}
+
+export async function runWrite<T>(options: WriteGuardOptions<T>): Promise<T> {
+  if (options.isTestingRole) {
+    options.notifyTestMode(
+      'Modo prueba: nada se guardó',
+      options.actionDescription || 'Esta operación no se guardó en la base de datos'
+    );
+    return await options.onSimulate();
+  }
+  return await options.onRealWrite();
 }): Promise<T> {
   if (params.isTestingRole) {
     // 1. Intercepta antes de tocar red o Supabase

@@ -23,7 +23,7 @@ Este documento consolida todos los aspectos etiquetados como **`[DEDUCIDO]`** a 
   * *Acción del equipo:* Confirmar si estas dependencias pueden desinstalarse (`npm uninstall express @google/genai`) o si tienen un propósito reservado para futuras entregas.
 
 - [ ] **5. Plan de Refactorización y Modularización de `InventoryContext.tsx`:**
-  * *Deducción:* Se deduce que el equipo reconoce el tamaño del archivo (2,961 líneas) como deuda técnica justificada por la velocidad de entrega del prototipo funcional para el Curso Integrador.
+  * *Deducción:* Se deduce que el equipo reconoce el tamaño del archivo (2,962 líneas) como deuda técnica justificada por la velocidad de entrega del prototipo funcional para el Curso Integrador.
   * *Acción del equipo:* Validar si se expondrá ante el docente como una mejora planificada hacia una arquitectura de contextos particionados por dominio.
 
 - [ ] **6. Hoja de Ruta para Operación Fuera de Línea (*Offline-First*):**
