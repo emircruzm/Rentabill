@@ -7,7 +7,6 @@ Proyecto desarrollado para el Curso Integrador de la Universidad Tecnológica de
 ## Integrantes y Docente
 
 * **Sandoval Libia, Gustavo David** (Jefe de equipo)
-* **Cervantes Pizarro, Fabian Aimar**
 * **Cruz Mauricio, Emir Xaniel**
 * **Docente:** Francisco Alonso Donayre Monteza
 
