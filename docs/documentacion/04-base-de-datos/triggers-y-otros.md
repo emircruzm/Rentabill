@@ -1,6 +1,6 @@
 # Disparadores (Triggers), Funciones Auxiliares y Storage (PostgreSQL v3.7.0)
 
-Este documento describe la lógica automatizada a nivel de base de datos (`supabase/rentabill_schema_v3.7.sql:441-761`), que incluye triggers de integridad, sincronización de usuarios, políticas de Supabase Storage y configuración de réplica en tiempo real.
+Este documento describe la lógica automatizada a nivel de base de datos (`supabase/rentabill_schema_v3.7.sql:441-761`), que incluye triggers de integridad y sincronización de usuarios. Asimismo, documenta la configuración complementaria de Supabase Storage y réplica en tiempo real, las cuales se configuran con el script `supabase/rentabill_storage_realtime_v3.7.1.sql` (no forman parte del script principal).
 
 ---
 
@@ -44,22 +44,38 @@ Este documento describe la lógica automatizada a nivel de base de datos (`supab
 
 ## 2. Configuración de Supabase Storage (Bucket de Imágenes)
 
+Supabase Storage se configura con `supabase/rentabill_storage_realtime_v3.7.1.sql` (no con el script principal del esquema):
+
 * **Bucket:** `product-images`.
 * **Acceso Público:** `public = true` (permite lectura directa vía URL pública para renderizado rápido en la app móvil).
-* **Políticas de Seguridad en Storage (`storage.objects`):**
-  * **Lectura (`SELECT`):** Pública para cualquier usuario autenticado o anónimo.
-  * **Escritura (`INSERT` / `UPDATE`):** Restringida a usuarios autenticados miembros de la tienda (`is_store_member(store_id)`).
-  * **Límite de Tamaño:** Configurado a 5 MB por archivo con tipos MIME permitidos: `image/png`, `image/jpeg`, `image/webp`.
+* **Límite de Tamaño:** Configurado a 5 MB por archivo.
+* **Tipos MIME Permitidos:** `image/jpeg`, `image/png`, `image/webp`.
+* **Políticas de Seguridad en Storage (`storage.objects`):** Implementadas mediante 4 políticas bajo el prefijo `rb_images_*`:
+  * Políticas de control de acceso para selección (`SELECT`), inserción (`INSERT`), actualización (`UPDATE`) y borrado (`DELETE`).
 
 ---
 
 ## 3. Publicación en Tiempo Real (Supabase Realtime)
 
-Para permitir que terminales de venta concurrentes reflejen cambios instantáneos de existencias y ventas, el esquema añade a la publicación `supabase_realtime`:
-```sql
-ALTER PUBLICATION supabase_realtime ADD TABLE public.products;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.sales;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.purchases;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.inventory_movements;
-```
-* **Filtrado por Tienda:** El cliente WebSocket suscribe a cada tabla aplicando el filtro `filter: 'store_id=eq.' + storeId`, garantizando que un terminal solo reciba los eventos pertenecientes a su negocio.
+La publicación en tiempo real de Supabase se configura con `supabase/rentabill_storage_realtime_v3.7.1.sql` (no con el script principal del esquema).
+
+### Canales y Tablas que Escucha la Aplicación Móvil
+
+La aplicación cliente escucha activamente los cambios en la base de datos a través de dos canales WebSocket:
+
+1. **Canal de Tienda (`store-<id>`):**
+   * **Implementación:** `src/data/realtime/storeRealtime.ts:1-61` (`subscribeToStoreRealtime`).
+   * **Canal:** `store-${storeId}`.
+   * **Filtro:** `store_id=eq.${storeId}` aplicado en el servidor a cada suscripción `postgres_changes`.
+   * **Tablas escuchadas (evento `*`):**
+     * `products`: cambios en existencias, precios y catálogo de la tienda.
+     * `sales`: nuevas ventas registradas desde cualquier terminal.
+     * `inventory_movements`: nuevos movimientos de kardex y ajustes de inventario.
+     * `store_members`: asignación, actualización o baja de miembros y roles del equipo.
+   * **Exclusión explícita:** **NO incluye `purchases`** (la aplicación móvil no escucha la tabla de compras en tiempo real).
+
+2. **Canal de Usuario e Invitaciones (`invitations_<userId>`):**
+   * **Implementación:** `src/application/state/InventoryContext.tsx:961-977`.
+   * **Canal:** `invitations_${user.userId || 'user'}`.
+   * **Tabla escuchada (evento `*`):** `store_invitations`.
+   * **Sin filtro en el payload:** No se define parámetro `filter:` en la llamada de `postgres_changes`; el aislamiento y seguridad se delegan a las políticas RLS de PostgreSQL para el usuario autenticado.

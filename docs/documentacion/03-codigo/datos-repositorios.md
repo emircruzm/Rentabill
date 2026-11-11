@@ -78,9 +78,15 @@ Intercepta los errores emitidos por PostgreSQL (SQLSTATE) y los traduce a mensaj
 
 ---
 
-## 4. Gestor de Suscripciones en Tiempo Real (`src/data/realtime/storeRealtime.ts:1-62`)
+## 4. Gestor de Suscripciones en Tiempo Real (`src/data/realtime/storeRealtime.ts:1-61`)
 
-Administra la conexión bidireccional WebSocket con el motor de réplica de Supabase:
-* Conecta al canal dinámico `store-changes-${storeId}`.
-* Escucha eventos `INSERT`, `UPDATE` y `DELETE` filtrados a nivel de servidor por `store_id = eq.${storeId}` para las tablas críticas (`products`, `sales`, `purchases`, `inventory_movements`).
-* Al recibir una notificación en segundo plano, despacha los callbacks correspondientes para actualizar el catálogo o el kardex en memoria de forma inmediata.
+Administra la conexión bidireccional WebSocket con el motor de réplica de Supabase (configurado en base de datos mediante `supabase/rentabill_storage_realtime_v3.7.1.sql`):
+* **Canal:** `store-${storeId}`.
+* **Tablas escuchadas:** Escucha eventos de cambio (`*`) filtrados a nivel de servidor mediante `filter: store_id=eq.${storeId}` para:
+  * `products`: cambios de catálogo, precios y existencias.
+  * `sales`: registro de nuevas ventas en otros terminales.
+  * `inventory_movements`: movimientos y ajustes de kardex.
+  * `store_members`: cambios en la membresía y roles del equipo.
+* **Exclusión:** **NO incluye `purchases`** (la tabla de compras no es escuchada por la aplicación móvil).
+* **Invitaciones:** Las invitaciones de usuario se escuchan por separado en el canal `invitations_<userId>` dentro de `InventoryContext.tsx` sin filtro en el payload (delimitadas por RLS).
+* **Despacho:** Al recibir una notificación en segundo plano, despacha los callbacks correspondientes para actualizar el catálogo, las ventas o el kardex en memoria de forma inmediata.
