@@ -26,7 +26,11 @@ import {
   calculateGlobalMetrics, 
   shouldTransitionToReal,
   runWrite,
-  setTestingRoleGlobal
+  setTestingRoleGlobal,
+  estimatedVelocity,
+  estimatedVelocityForPurchase,
+  realVelocityCurrent,
+  resolveRealVelocity
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
 import { supabase } from '@data/supabase/client';
@@ -103,7 +107,7 @@ interface InventoryContextType {
   addPastSimulation: (sim: Omit<PastSimulation, 'id' | 'date'>) => Promise<void>;
   confirmPastSimulationPurchase: (simulationId: string) => Promise<void>;
   payPurchase: (purchaseId: string) => Promise<void>;
-  getRealProductVelocity: (productId: string) => { dailyVelocity: number; daysToDeplete: (qty: number) => number; totalUnitsSold: number; isReal: boolean };
+  getRealProductVelocity: (productId: string, simulatedQuantity?: number) => { dailyVelocity: number; daysToDeplete: (qty: number) => number; totalUnitsSold: number; isReal: boolean };
   // Auth & Store State
   authScreen: AuthScreen;
   setAuthScreen: (screen: AuthScreen) => void;
@@ -1800,7 +1804,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   }, [user.storeId, loadStoreData, showToast]);
 
-  const getRealProductVelocity = useCallback((productId: string) => {
+  const getRealProductVelocity = useCallback((productId: string, simulatedQuantity?: number) => {
     const product = products.find(p => p.id === productId);
     if (!product) {
       return { dailyVelocity: 1, daysToDeplete: (qty: number) => Math.ceil(qty / 1), totalUnitsSold: 0, isReal: false };
@@ -1818,16 +1822,31 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       ? Number((totalRealUnitsSold / daysActive).toFixed(2)) 
       : 0;
 
-    const baseQty = Math.max(product.stock, 1);
-    const fallbackRate = product.estimatedSpeed === 'RAPIDO' ? 0.30 : product.estimatedSpeed === 'NORMAL' ? 0.15 : 0.05;
-    const fallbackVelocity = Number(((baseQty * fallbackRate) / 7).toFixed(2)) || 1.0;
-    const finalDailyVelocity = empiricalVelocity > 0 ? empiricalVelocity : fallbackVelocity;
+    const isReal = product.status === 'REAL' || shouldTransitionToReal(product.salesCount, product.createdDaysAgo) || totalRealUnitsSold >= 5;
+
+    let finalDailyVelocity: number;
+    if (isReal) {
+      const realResult = resolveRealVelocity({
+        unitsSoldTotal: totalRealUnitsSold,
+        unitsSoldLast28d: product.unitsSold28d ?? product.unitsSoldLast28d,
+        createdDaysAgo: daysActive,
+      });
+      finalDailyVelocity = realResult.dailyVelocity;
+    } else {
+      const empiricalVelocity = totalRealUnitsSold > 0 
+        ? realVelocityCurrent({ unitsSoldTotal: totalRealUnitsSold, createdDaysAgo: daysActive })
+        : 0;
+      const fallbackVelocity = (simulatedQuantity !== undefined && simulatedQuantity > 0)
+        ? (estimatedVelocityForPurchase(product.stock, simulatedQuantity, product.estimatedSpeed) || 1.0)
+        : (estimatedVelocity(product.stock, product.estimatedSpeed) || 1.0);
+      finalDailyVelocity = empiricalVelocity > 0 ? empiricalVelocity : fallbackVelocity;
+    }
 
     return {
       dailyVelocity: finalDailyVelocity,
       daysToDeplete: (qty: number) => Math.max(1, Math.ceil(qty / Math.max(finalDailyVelocity, 0.1))),
       totalUnitsSold: totalRealUnitsSold,
-      isReal: product.status === 'REAL' || totalRealUnitsSold >= 5,
+      isReal,
     };
   }, [products, sales]);
 

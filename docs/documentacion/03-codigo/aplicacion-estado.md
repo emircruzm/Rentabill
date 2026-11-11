@@ -80,6 +80,20 @@ El hook expone una interfaz completa de operaciones que encapsulan la invocació
 
 ## 4. Suscripciones en Tiempo Real (Supabase Realtime)
 
-El contexto ejecuta el hook de suscripción `subscribeToStoreRealtime(storeId, callbacks)` implementado en `src/data/realtime/storeRealtime.ts`:
-* Escucha cambios en las tablas `products`, `sales`, `purchases` e `inventory_movements`.
-* Al producirse una venta o un ingreso de mercadería en otro terminal, el WebSocket notifica al cliente, actualizando automáticamente el inventario local y recalculando el Puntaje de Salud sin requerir recarga de página.
+El estado global de la aplicación mantiene sincronización reactiva en tiempo real (aprovisionada en backend con `supabase/rentabill_storage_realtime_v3.7.1.sql`) a través de dos suscripciones WebSocket:
+
+1. **Canal de Tienda (`store-${storeId}`):**
+   * Invoca `subscribeToStoreRealtime(storeId, callbacks)` implementado en `src/data/realtime/storeRealtime.ts:1-61`.
+   * Escucha eventos (`*`) con el filtro `store_id=eq.${storeId}` para las tablas:
+     * `products`: actualiza catálogo y existencias en memoria.
+     * `sales`: refresca historial de ventas y métricas operativas.
+     * `inventory_movements`: sincroniza entradas, salidas y ajustes de kardex.
+     * `store_members`: actualiza miembros y roles en tiempo real.
+   * **Exclusión explícita:** **NO incluye `purchases`** (la tabla de compras no se suscribe por WebSocket).
+
+2. **Canal de Invitaciones de Usuario (`invitations_${user.userId || 'user'}`):**
+   * Implementado directamente en `src/application/state/InventoryContext.tsx:961-977`.
+   * Escucha eventos (`*`) en la tabla `store_invitations`.
+   * **Sin filtro en el payload:** No especifica filtro en la suscripción, delegando la visibilidad y aislamiento a las políticas RLS de PostgreSQL para el usuario actual.
+
+Al producirse una venta, ajuste o cambio de inventario en otro terminal, el WebSocket notifica al cliente, actualizando automáticamente el catálogo local y recalculando el Puntaje de Salud sin requerir recarga de página.

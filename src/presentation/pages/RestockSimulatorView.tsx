@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Calculator, 
   Sparkles, 
@@ -78,8 +78,8 @@ export const RestockSimulatorView: React.FC = () => {
 
   const realVelocityInfo = useMemo(() => {
     if (!currentProduct) return { dailyVelocity: 1, daysToDeplete: (q: number) => q, totalUnitsSold: 0, isReal: false };
-    return getRealProductVelocity(currentProduct.id);
-  }, [currentProduct, getRealProductVelocity]);
+    return getRealProductVelocity(currentProduct.id, simulatedQuantity);
+  }, [currentProduct, getRealProductVelocity, simulatedQuantity]);
 
   const simulationCalculations = useMemo(() => {
     if (!currentProduct || currentProduct.costPrice <= 0 || simulatedQuantity <= 0) {

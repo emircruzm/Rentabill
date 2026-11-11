@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Search, 
   QrCode, 
@@ -438,7 +438,9 @@ export const InventarioView: React.FC = () => {
                   <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5">
                     <span className="flex items-center gap-1 text-emerald-700 font-medium">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      Basado en {product.salesCount} ventas ({product.unitsSold} u) / {Math.max(product.createdDaysAgo, 1)} días
+                      {product.unitsSoldLast28d != null
+                        ? `Basado en ${product.unitsSoldLast28d} u vendidas en los últimos ${Math.min(28, Math.max(product.createdDaysAgo, 1))} días`
+                        : `Basado en ${product.salesCount} ventas (${product.unitsSold} u) / ${Math.max(product.createdDaysAgo, 1)} días`}
                     </span>
                     <div className="flex items-center gap-1.5">
                       <button

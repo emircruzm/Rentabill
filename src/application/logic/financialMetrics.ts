@@ -1,10 +1,12 @@
-import { Product, CalculatedProductMetrics, GlobalFinancialMetrics, SpeedCategory } from '@shared/types/index';
+import type { Product, CalculatedProductMetrics, GlobalFinancialMetrics } from '@shared/types/index';
+import {
+  estimatedVelocity,
+  realVelocityCurrent,
+  resolveRealVelocity,
+  SPEED_WEEKLY_RATES,
+} from './velocity.ts';
 
-export const ESTIMATED_SPEED_VALUES: Record<SpeedCategory, number> = {
-  RAPIDO: 3.0,
-  NORMAL: 1.0,
-  LENTO: 0.2,
-};
+export { SPEED_WEEKLY_RATES };
 
 export function shouldTransitionToReal(salesCount: number, createdDaysAgo: number): boolean {
   return salesCount >= 5 || createdDaysAgo >= 30;
@@ -31,28 +33,32 @@ export function calculateProductMetrics(product: Product): CalculatedProductMetr
   let isSlow = false;
 
   if (effectiveStatus === 'REAL') {
-    // ETAPA REAL (sales_count >= 5 o 30+ días): units_sold / días transcurridos desde created_at
-    const days = Math.max(product.createdDaysAgo, 1);
-    dailyVelocity = Number((product.unitsSold / days).toFixed(2));
+    // ETAPA REAL (sales_count >= 5 o 30+ días)
+    const realResult = resolveRealVelocity({
+      unitsSoldTotal: product.unitsSold,
+      unitsSoldLast28d: product.unitsSold28d ?? product.unitsSoldLast28d,
+      createdDaysAgo: product.createdDaysAgo,
+    });
+    dailyVelocity = realResult.dailyVelocity;
     velocityLabel = `${dailyVelocity} u/día (real)`;
-    isSlow = dailyVelocity < 0.5;
+    isSlow = realResult.isSlow;
   } else if (hasManualClassification && product.estimatedSpeed) {
     // ETAPA ESTIMADA: estimated_speed convertido a % semanal del stock (RAPIDO=30%, NORMAL=15%, LENTO=5%) ÷ 7, usando stock como base
-    const weeklyRate = product.estimatedSpeed === 'RAPIDO' ? 0.30 : product.estimatedSpeed === 'NORMAL' ? 0.15 : 0.05;
-    const speedBase = Math.max(currentStock, 1);
-    dailyVelocity = Number(((speedBase * weeklyRate) / 7).toFixed(2));
+    dailyVelocity = estimatedVelocity(currentStock, product.estimatedSpeed);
     const speedName = product.estimatedSpeed === 'RAPIDO' ? 'Rápido (30%/sem)' : product.estimatedSpeed === 'NORMAL' ? 'Normal (15%/sem)' : 'Lento (5%/sem)';
     velocityLabel = `${speedName} (est.)`;
     isSlow = product.estimatedSpeed === 'LENTO';
   } else {
     // Zero sales and no manual classification declared:
     if (product.salesCount === 0) {
-      dailyVelocity = Number(((Math.max(currentStock, 1) * 0.15) / 7).toFixed(2)) || 1.0;
+      dailyVelocity = estimatedVelocity(currentStock, 'NORMAL') || 1.0;
       velocityLabel = 'estimado, sin datos aún';
       isSlow = false;
     } else {
-      const days = Math.max(product.createdDaysAgo, 1);
-      dailyVelocity = Number((product.unitsSold / days).toFixed(2)) || 1.0;
+      dailyVelocity = realVelocityCurrent({
+        unitsSoldTotal: product.unitsSold,
+        createdDaysAgo: product.createdDaysAgo,
+      }) || 1.0;
       velocityLabel = `${dailyVelocity} u/día (en proceso)`;
       isSlow = dailyVelocity < 0.5 && product.createdDaysAgo >= 15;
     }

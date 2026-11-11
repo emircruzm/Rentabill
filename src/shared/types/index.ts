@@ -34,6 +34,8 @@ export interface Product {
   reorderPoint?: number; // threshold for alerts
   estimatedSpeed?: SpeedCategory | null;
   unitsSold: number;
+  unitsSold28d?: number;
+  unitsSoldLast28d?: number;
   salesCount: number;
   createdDaysAgo: number;
   status: ProductStatus;

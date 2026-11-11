@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ArrowLeft, 
   Barcode, 
@@ -18,7 +18,7 @@ import {
   Package,
   Scale
 } from 'lucide-react';
-import { useInventory } from '@application/index';
+import { useInventory, estimatedVelocity } from '@application/index';
 import { SpeedCategory, ProductUnit } from '@shared/types/index';
 import { executeBarcodeScan } from '@platform/index';
 import { capacitorCamera } from '@platform/index';
@@ -62,11 +62,11 @@ export const ProductRegisterView: React.FC = () => {
     return Number((costPrice * stock).toFixed(2));
   }, [costPrice, stock]);
 
-  const weeklyRate = speed === 'RAPIDO' ? 0.30 : speed === 'NORMAL' ? 0.15 : 0.05;
+
   const dailyVelocity = useMemo(() => {
-    const base = Math.max(stock, 1);
-    return Number(((base * weeklyRate) / 7).toFixed(2));
-  }, [weeklyRate, stock]);
+
+    return estimatedVelocity(stock, speed);
+  }, [stock, speed]);
 
   const dailyProfitDollar = Number((unitMarginDollar * dailyVelocity).toFixed(2));
 
