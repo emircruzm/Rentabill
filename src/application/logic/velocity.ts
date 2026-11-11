@@ -31,6 +31,22 @@ export function estimatedVelocity(
 }
 
 /**
+ * Velocidad estimada para el simulador de compra.
+ * Utiliza como base Math.max(stock, quantity, 1) para escalar adecuadamente
+ * productos estimados con stock bajo o 0.
+ * Cuando stock >= quantity, coincide exactamente con estimatedVelocity.
+ */
+export function estimatedVelocityForPurchase(
+  stock: number,
+  quantity: number,
+  estimatedSpeed?: SpeedCategory | string | null
+): number {
+  const rate = (estimatedSpeed ? SPEED_WEEKLY_RATES[estimatedSpeed as SpeedCategory] : undefined) ?? 0.15;
+  const base = Math.max(stock, quantity, 1);
+  return Number(((base * rate) / 7).toFixed(2));
+}
+
+/**
  * Velocidad diaria real acumulada (fórmula actual / histórica de referencia).
  * Fórmula: unitsSoldTotal / Math.max(createdDaysAgo, 1)
  */

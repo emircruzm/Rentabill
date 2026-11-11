@@ -28,6 +28,7 @@ import {
   runWrite,
   setTestingRoleGlobal,
   estimatedVelocity,
+  estimatedVelocityForPurchase,
   realVelocityCurrent,
   resolveRealVelocity
 } from '@application/logic/index';
@@ -106,7 +107,7 @@ interface InventoryContextType {
   addPastSimulation: (sim: Omit<PastSimulation, 'id' | 'date'>) => Promise<void>;
   confirmPastSimulationPurchase: (simulationId: string) => Promise<void>;
   payPurchase: (purchaseId: string) => Promise<void>;
-  getRealProductVelocity: (productId: string) => { dailyVelocity: number; daysToDeplete: (qty: number) => number; totalUnitsSold: number; isReal: boolean };
+  getRealProductVelocity: (productId: string, simulatedQuantity?: number) => { dailyVelocity: number; daysToDeplete: (qty: number) => number; totalUnitsSold: number; isReal: boolean };
   // Auth & Store State
   authScreen: AuthScreen;
   setAuthScreen: (screen: AuthScreen) => void;
@@ -1803,7 +1804,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   }, [user.storeId, loadStoreData, showToast]);
 
-  const getRealProductVelocity = useCallback((productId: string) => {
+  const getRealProductVelocity = useCallback((productId: string, simulatedQuantity?: number) => {
     const product = products.find(p => p.id === productId);
     if (!product) {
       return { dailyVelocity: 1, daysToDeplete: (qty: number) => Math.ceil(qty / 1), totalUnitsSold: 0, isReal: false };
@@ -1835,7 +1836,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const empiricalVelocity = totalRealUnitsSold > 0 
         ? realVelocityCurrent({ unitsSoldTotal: totalRealUnitsSold, createdDaysAgo: daysActive })
         : 0;
-      const fallbackVelocity = estimatedVelocity(product.stock, product.estimatedSpeed) || 1.0;
+      const fallbackVelocity = (simulatedQuantity !== undefined && simulatedQuantity > 0)
+        ? (estimatedVelocityForPurchase(product.stock, simulatedQuantity, product.estimatedSpeed) || 1.0)
+        : (estimatedVelocity(product.stock, product.estimatedSpeed) || 1.0);
       finalDailyVelocity = empiricalVelocity > 0 ? empiricalVelocity : fallbackVelocity;
     }
 
