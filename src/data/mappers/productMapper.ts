@@ -18,6 +18,8 @@ export const productMapper = {
       reorderPoint: Number(row.reorder_point || 12),
       estimatedSpeed: row.estimated_speed,
       unitsSold: Number(row.units_sold || 0),
+      unitsSold28d: row.units_sold_28d != null ? Number(row.units_sold_28d) : undefined,
+      unitsSoldLast28d: row.units_sold_28d != null ? Number(row.units_sold_28d) : undefined,
       salesCount: Number(row.sales_count || 0),
       createdDaysAgo: Number(row.created_days_ago || 0),
       status: row.status,
