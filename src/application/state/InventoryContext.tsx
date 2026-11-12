@@ -1405,6 +1405,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return false;
     }
 
+    const storeId = user.storeId;
     const initialStock = Number(productData.stock) || 0;
 
     return await runWrite({
@@ -1445,16 +1446,6 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           if (!targetCategoryId) {
             perfStart('add:categorias');
             const targetName = (productData.category || 'General').toLowerCase();
-
-            if (import.meta.env.DEV) {
-              console.debug('[CATEGORIAS CACHE]', {
-                cacheStoreId: categoriesCacheRef.current?.storeId,
-                userStoreId: user.storeId,
-                targetCategory: targetName,
-                cachedCategories: categoriesCacheRef.current?.data?.map(c => c.name),
-                resolvedMap: categoriesCacheRef.current?.resolved,
-              });
-            }
 
             const cache = (categoriesCacheRef.current && categoriesCacheRef.current.storeId === user.storeId)
               ? categoriesCacheRef.current
@@ -1535,8 +1526,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             if (!newProductId) throw new Error('No se obtuvo el ID del producto registrado');
 
             const [newProduct, freshMovements] = await Promise.all([
-              productsRepository.getById(user.storeId, newProductId),
-              initialStock > 0 ? stockRepository.getMovements(user.storeId, 100) : Promise.resolve(null),
+              productsRepository.getById(storeId, newProductId),
+              initialStock > 0 ? stockRepository.getMovements(storeId, 100) : Promise.resolve(null),
             ]);
 
             if (!newProduct) throw new Error('No se encontró el producto en product_stats');
