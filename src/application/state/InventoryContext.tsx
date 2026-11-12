@@ -33,6 +33,7 @@ import {
   resolveRealVelocity
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
+import { perfStart, perfEnd, perfCount, perfReport } from '@shared/utils/perf';
 import { supabase } from '@data/supabase/client';
 import { formatAuthError } from '@data/supabase/errorMapper';
 import { 
@@ -312,26 +313,31 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setError(null);
 
       // 1. Fetch Store and Cash Registers
+      perfStart('load:tienda');
       const { data: storeData, error: storeErr } = await supabase
         .from('stores')
         .select('*')
         .eq('id', storeId)
         .single();
+      perfEnd('load:tienda');
       
       if (storeErr) throw storeErr;
       if (activeStoreRequestIdRef.current !== reqId) return;
 
       let loadedRegisters = ['Caja 01 - Mostrador'];
       try {
+        perfStart('load:cajas');
         const { data: regData } = await supabase
           .from('cash_registers')
           .select('name')
           .eq('store_id', storeId)
           .order('name');
+        perfEnd('load:cajas');
         if (regData && regData.length > 0) {
           loadedRegisters = regData.map(r => r.name);
         }
       } catch (err) {
+        perfEnd('load:cajas');
         console.warn('Fallback a caja por defecto:', err);
       }
 
@@ -348,47 +354,66 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
 
       // 2. Fetch Products via productsRepository
+      perfStart('load:productos');
       const loadedProducts = await productsRepository.getByStoreId(storeId);
+      perfEnd('load:productos');
       setProducts(loadedProducts);
 
       // 3. Fetch Suppliers via suppliersRepository
+      perfStart('load:proveedores');
       const loadedSuppliers = await suppliersRepository.getByStoreId(storeId);
+      perfEnd('load:proveedores');
       setSuppliers(loadedSuppliers);
 
       // 4. Fetch Sales via salesRepository
+      perfStart('load:ventas');
       const loadedSales = await salesRepository.getByStoreId(storeId, 100);
+      perfEnd('load:ventas');
       setSales(loadedSales);
 
       // 5. Fetch Inventory Movements via stockRepository
+      perfStart('load:movimientos');
       const loadedMovements = await stockRepository.getMovements(storeId, 100);
+      perfEnd('load:movimientos');
       setInventoryMovements(loadedMovements);
 
       // 6. Fetch Simulations via simulationsRepository
       const suppliersMap = Object.fromEntries(loadedSuppliers.map(s => [s.id, s.name]));
+      perfStart('load:simulaciones');
       const loadedSims = await simulationsRepository.getByStoreId(storeId, suppliersMap);
+      perfEnd('load:simulaciones');
       setPastSimulations(loadedSims);
 
       // 6b. Fetch Purchases via purchasesRepository
       try {
+        perfStart('load:compras');
         const loadedPurchases = await purchasesRepository.getByStoreId(storeId);
+        perfEnd('load:compras');
         setPurchases(loadedPurchases);
       } catch (err) {
+        perfEnd('load:compras');
         console.warn('Error al cargar compras:', err);
       }
 
       // 7. Fetch Team Members via teamRepository
       try {
+        perfStart('load:miembros');
         const loadedMembers = await teamRepository.getMembersByStoreId(storeId);
+        perfEnd('load:miembros');
         setTeamMembers(loadedMembers);
       } catch (err) {
+        perfEnd('load:miembros');
         console.warn('Error al cargar miembros del equipo:', err);
       }
 
       // 8. Fetch Invitations via teamRepository
       try {
+        perfStart('load:invitaciones');
         const loadedInvitations = await teamRepository.getInvitationsByStoreId(storeId);
+        perfEnd('load:invitaciones');
         setInvitations(loadedInvitations);
       } catch (err) {
+        perfEnd('load:invitaciones');
         console.warn('Error al cargar invitaciones:', err);
       }
 
@@ -399,7 +424,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         currentUserId = currentUser?.id;
       } catch {}
 
+      perfStart('load:ajustes');
       const { storeSettings: settData, userPreferences: prefData } = await settingsRepository.getSettings(storeId, currentUserId);
+      perfEnd('load:ajustes');
       const userPref = {
         darkMode: Boolean(prefData?.dark_mode),
         language: prefData?.language || 'Español (Sencillo)',
@@ -425,6 +452,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
         const unsubscribe = subscribeToStoreRealtime(storeId, {
           onProductsChange: async () => {
+            perfCount('perf:realtime-refetch');
             if (activeStoreRequestIdRef.current === reqId) {
               const freshProducts = await productsRepository.getByStoreId(storeId);
               if (activeStoreRequestIdRef.current === reqId) {
@@ -1288,6 +1316,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Add Product to Supabase
   const addProduct = useCallback(async (productData: Omit<Product, 'id' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo' | 'storeId' | 'categoryId'> & { storeId?: string; categoryId?: string }): Promise<boolean> => {
+    perfStart('add:total');
     if (!user.storeId) {
       showToast('No se encontró una tienda asignada', 'alert');
       return false;
@@ -1331,12 +1360,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           // Buscar category_id de la tienda
           let targetCategoryId = productData.categoryId;
           if (!targetCategoryId) {
+            perfStart('add:categorias');
             const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
+            perfEnd('add:categorias');
             const cat = catData?.find((c: any) => c.name.toLowerCase() === (productData.category || 'General').toLowerCase());
             if (cat) targetCategoryId = cat.id;
             else if (catData && catData.length > 0) targetCategoryId = catData[0].id;
           }
 
+          perfStart('add:insert');
           const { error: insertErr } = await supabase
             .from('products')
             .insert({
@@ -1355,16 +1387,22 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               sales_count: 0,
               image_url: productData.imageUrl || null,
             });
+          perfEnd('add:insert');
 
           if (insertErr) throw insertErr;
 
           if (user.storeId) {
+            perfStart('add:recarga');
             await loadStoreData(user.storeId);
+            perfEnd('add:recarga');
           }
           showToast("Producto guardado con ganancia estimada", 'success', "Se confirmará automáticamente al acumular 5 ventas");
+          perfEnd('add:total');
+          perfReport();
           setActiveTab('inventario');
           return true;
         } catch (err: any) {
+          perfEnd('add:total');
           console.error('Error guardando producto:', err);
           showToast('Error al registrar producto', 'alert', err.message || 'Verifica los datos e intenta nuevamente.');
           return false;
