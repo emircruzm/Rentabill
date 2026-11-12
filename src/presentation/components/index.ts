@@ -1,4 +1,5 @@
 export * from './BottomNavigation';
+export * from './BulkProductModal';
 export * from './CalibrationModal';
 export * from './EditProductModal';
 export * from './Header';

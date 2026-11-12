@@ -3,6 +3,7 @@ import {
   Search, 
   QrCode, 
   Plus, 
+  Upload, 
   CheckCircle2, 
   Clock, 
   AlertTriangle, 
@@ -18,6 +19,7 @@ import {
 import { useInventory } from '@application/index';
 import { Product } from '@shared/types/index';
 import { EditProductModal } from '@presentation/components/EditProductModal';
+import { BulkProductModal } from '@presentation/components/BulkProductModal';
 import { formatCurrency } from '@shared/formatters/index';
 
 interface SortOptionConfig {
@@ -90,10 +92,13 @@ export const InventarioView: React.FC = () => {
     setCurrentSort,
     loading,
     error,
-    refreshData
+    refreshData,
+    user
   } = useInventory();
 
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const canCreateProducts = user.role === 'ADMIN' || user.role === 'REPOSITOR';
 
   // Filter & Search Logic
   const filteredProducts = useMemo(() => {
@@ -516,16 +521,32 @@ export const InventarioView: React.FC = () => {
         )}
       </div>
 
-      {/* Floating Action Button "+ Nuevo Producto" */}
-      <div className="fixed bottom-24 right-4 sm:right-[max(1rem,calc(50%-13rem))] z-30 pointer-events-auto">
-        <button
-          onClick={() => setActiveTab('nuevo-producto')}
-          className="flex items-center gap-2 px-4 py-3 rounded-full bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs shadow-xl shadow-emerald-900/30 active:scale-95 transition-all"
-        >
-          <Plus className="w-4 h-4 stroke-[3]" />
-          <span>Nuevo Producto</span>
-        </button>
-      </div>
+      {/* Floating Action Buttons */}
+      {canCreateProducts && (
+        <div className="fixed bottom-24 right-4 sm:right-[max(1rem,calc(50%-13rem))] z-30 pointer-events-auto flex items-center gap-2">
+          <button
+            onClick={() => setIsBulkModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-3 rounded-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs shadow-xl shadow-slate-900/30 active:scale-95 transition-all"
+            title="Carga rápida de productos desde Excel o CSV"
+          >
+            <Upload className="w-4 h-4 stroke-[2.5]" />
+            <span>Carga Rápida</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('nuevo-producto')}
+            className="flex items-center gap-2 px-4 py-3 rounded-full bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs shadow-xl shadow-emerald-900/30 active:scale-95 transition-all"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>Nuevo Producto</span>
+          </button>
+        </div>
+      )}
+
+      {/* Modal para Carga Rápida de Productos */}
+      <BulkProductModal
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+      />
 
       {/* Modal para Editar Producto */}
       <EditProductModal
