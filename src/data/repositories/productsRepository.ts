@@ -15,6 +15,19 @@ export const productsRepository = {
     return (data || []).map(productMapper.fromRow);
   },
 
+  async getById(storeId: string, productId: string): Promise<Product | null> {
+    const { data, error } = await supabase
+      .from('product_stats')
+      .select('*')
+      .eq('store_id', storeId)
+      .eq('id', productId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+    return productMapper.fromRow(data);
+  },
+
   async ensureCategory(storeId: string, categoryName: string): Promise<string> {
     const trimmed = categoryName.trim() || 'General';
     const { data: existing } = await supabase

@@ -1449,7 +1449,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           }
 
           perfStart('add:insert');
-          const { error: insertErr } = await supabase
+          const { data: insertedProduct, error: insertErr } = await supabase
             .from('products')
             .insert({
               store_id: user.storeId,
@@ -1466,15 +1466,42 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               units_sold: 0,
               sales_count: 0,
               image_url: productData.imageUrl || null,
-            });
+            })
+            .select('id')
+            .single();
           perfEnd('add:insert');
 
           if (insertErr) throw insertErr;
 
-          if (user.storeId) {
-            perfStart('add:recarga');
-            await loadStoreData(user.storeId);
-            perfEnd('add:recarga');
+          perfStart('add:fetch');
+          try {
+            const newProductId = insertedProduct?.id;
+            if (!newProductId) throw new Error('No se obtuvo el ID del producto registrado');
+
+            const [newProduct, freshMovements] = await Promise.all([
+              productsRepository.getById(user.storeId, newProductId),
+              initialStock > 0 ? stockRepository.getMovements(user.storeId, 100) : Promise.resolve(null),
+            ]);
+
+            if (!newProduct) throw new Error('No se encontró el producto en product_stats');
+
+            setProducts(prev => {
+              if (prev.some(p => p.id === newProduct.id)) {
+                return prev.map(p => p.id === newProduct.id ? newProduct : p);
+              }
+              return [newProduct, ...prev];
+            });
+
+            if (freshMovements) {
+              setInventoryMovements(freshMovements);
+            }
+          } catch (fetchErr) {
+            console.warn('Error en add:fetch puntual, ejecutando respaldo loadStoreData:', fetchErr);
+            if (user.storeId) {
+              await loadStoreData(user.storeId);
+            }
+          } finally {
+            perfEnd('add:fetch');
           }
           showToast("Producto guardado con ganancia estimada", 'success', "Se confirmará automáticamente al acumular 5 ventas");
           perfEnd('add:total');
