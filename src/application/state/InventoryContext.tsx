@@ -294,8 +294,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }, 4500);
   }, []);
 
-  // Fetch full store data from Supabase
+    // Fetch full store data from Supabase
   const loadStoreData = useCallback(async (storeId: string) => {
+    perfStart('load:total');
     const reqId = `${storeId}_${Date.now()}`;
     activeStoreRequestIdRef.current = reqId;
 
@@ -312,35 +313,166 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       setError(null);
 
-      // 1. Fetch Store and Cash Registers
-      perfStart('load:tienda');
-      const { data: storeData, error: storeErr } = await supabase
-        .from('stores')
-        .select('*')
-        .eq('id', storeId)
-        .single();
-      perfEnd('load:tienda');
-      
-      if (storeErr) throw storeErr;
+      // Preparación de promesas en paralelo (Ola 1: 10 consultas independientes)
+      const fetchStore = async () => {
+        perfStart('load:tienda');
+        try {
+          const { data: storeData, error: storeErr } = await supabase
+            .from('stores')
+            .select('*')
+            .eq('id', storeId)
+            .single();
+          if (storeErr) throw storeErr;
+          return storeData;
+        } finally {
+          perfEnd('load:tienda');
+        }
+      };
+
+      const fetchRegisters = async () => {
+        perfStart('load:cajas');
+        try {
+          const { data: regData } = await supabase
+            .from('cash_registers')
+            .select('name')
+            .eq('store_id', storeId)
+            .order('name');
+          if (regData && regData.length > 0) {
+            return regData.map(r => r.name);
+          }
+          return ['Caja 01 - Mostrador'];
+        } catch (err) {
+          console.warn('Fallback a caja por defecto:', err);
+          return ['Caja 01 - Mostrador'];
+        } finally {
+          perfEnd('load:cajas');
+        }
+      };
+
+      const fetchProducts = async () => {
+        perfStart('load:productos');
+        try {
+          return await productsRepository.getByStoreId(storeId);
+        } finally {
+          perfEnd('load:productos');
+        }
+      };
+
+      const fetchSuppliers = async () => {
+        perfStart('load:proveedores');
+        try {
+          return await suppliersRepository.getByStoreId(storeId);
+        } finally {
+          perfEnd('load:proveedores');
+        }
+      };
+
+      const fetchSales = async () => {
+        perfStart('load:ventas');
+        try {
+          return await salesRepository.getByStoreId(storeId, 100);
+        } finally {
+          perfEnd('load:ventas');
+        }
+      };
+
+      const fetchMovements = async () => {
+        perfStart('load:movimientos');
+        try {
+          return await stockRepository.getMovements(storeId, 100);
+        } finally {
+          perfEnd('load:movimientos');
+        }
+      };
+
+      const fetchPurchases = async () => {
+        perfStart('load:compras');
+        try {
+          return await purchasesRepository.getByStoreId(storeId);
+        } catch (err) {
+          console.warn('Error al cargar compras:', err);
+          return [] as PurchaseRecord[];
+        } finally {
+          perfEnd('load:compras');
+        }
+      };
+
+      const fetchMembers = async () => {
+        perfStart('load:miembros');
+        try {
+          return await teamRepository.getMembersByStoreId(storeId);
+        } catch (err) {
+          console.warn('Error al cargar miembros del equipo:', err);
+          return [] as TeamMember[];
+        } finally {
+          perfEnd('load:miembros');
+        }
+      };
+
+      const fetchInvitations = async () => {
+        perfStart('load:invitaciones');
+        try {
+          return await teamRepository.getInvitationsByStoreId(storeId);
+        } catch (err) {
+          console.warn('Error al cargar invitaciones:', err);
+          return [] as TeamInvitation[];
+        } finally {
+          perfEnd('load:invitaciones');
+        }
+      };
+
+      const fetchSettings = async () => {
+        perfStart('load:ajustes');
+        try {
+          let currentUserId: string | undefined;
+          try {
+            currentUserId = await authRepository.getLocalUserId();
+          } catch {}
+          return await settingsRepository.getSettings(storeId, currentUserId);
+        } finally {
+          perfEnd('load:ajustes');
+        }
+      };
+
+      const [
+        storeData,
+        _loadedRegisters,
+        loadedProducts,
+        loadedSuppliers,
+        loadedSales,
+        loadedMovements,
+        loadedPurchases,
+        loadedMembers,
+        loadedInvitations,
+        settingsData,
+      ] = await Promise.all([
+        fetchStore(),
+        fetchRegisters(),
+        fetchProducts(),
+        fetchSuppliers(),
+        fetchSales(),
+        fetchMovements(),
+        fetchPurchases(),
+        fetchMembers(),
+        fetchInvitations(),
+        fetchSettings(),
+      ]);
+
       if (activeStoreRequestIdRef.current !== reqId) return;
 
-      let loadedRegisters = ['Caja 01 - Mostrador'];
+      // Ola 2: Simulaciones (requiere mapa de proveedores)
+      const suppliersMap = Object.fromEntries(loadedSuppliers.map(s => [s.id, s.name]));
+      perfStart('load:simulaciones');
+      let loadedSims: PastSimulation[] = [];
       try {
-        perfStart('load:cajas');
-        const { data: regData } = await supabase
-          .from('cash_registers')
-          .select('name')
-          .eq('store_id', storeId)
-          .order('name');
-        perfEnd('load:cajas');
-        if (regData && regData.length > 0) {
-          loadedRegisters = regData.map(r => r.name);
-        }
-      } catch (err) {
-        perfEnd('load:cajas');
-        console.warn('Fallback a caja por defecto:', err);
+        loadedSims = await simulationsRepository.getByStoreId(storeId, suppliersMap);
+      } finally {
+        perfEnd('load:simulaciones');
       }
 
+      if (activeStoreRequestIdRef.current !== reqId) return;
+
+      // Aplicar estados de manera conjunta
       if (storeData) {
         setStoreInfo({
           id: storeData.id,
@@ -353,80 +485,16 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }
 
-      // 2. Fetch Products via productsRepository
-      perfStart('load:productos');
-      const loadedProducts = await productsRepository.getByStoreId(storeId);
-      perfEnd('load:productos');
       setProducts(loadedProducts);
-
-      // 3. Fetch Suppliers via suppliersRepository
-      perfStart('load:proveedores');
-      const loadedSuppliers = await suppliersRepository.getByStoreId(storeId);
-      perfEnd('load:proveedores');
       setSuppliers(loadedSuppliers);
-
-      // 4. Fetch Sales via salesRepository
-      perfStart('load:ventas');
-      const loadedSales = await salesRepository.getByStoreId(storeId, 100);
-      perfEnd('load:ventas');
       setSales(loadedSales);
-
-      // 5. Fetch Inventory Movements via stockRepository
-      perfStart('load:movimientos');
-      const loadedMovements = await stockRepository.getMovements(storeId, 100);
-      perfEnd('load:movimientos');
       setInventoryMovements(loadedMovements);
-
-      // 6. Fetch Simulations via simulationsRepository
-      const suppliersMap = Object.fromEntries(loadedSuppliers.map(s => [s.id, s.name]));
-      perfStart('load:simulaciones');
-      const loadedSims = await simulationsRepository.getByStoreId(storeId, suppliersMap);
-      perfEnd('load:simulaciones');
       setPastSimulations(loadedSims);
+      setPurchases(loadedPurchases);
+      setTeamMembers(loadedMembers);
+      setInvitations(loadedInvitations);
 
-      // 6b. Fetch Purchases via purchasesRepository
-      try {
-        perfStart('load:compras');
-        const loadedPurchases = await purchasesRepository.getByStoreId(storeId);
-        perfEnd('load:compras');
-        setPurchases(loadedPurchases);
-      } catch (err) {
-        perfEnd('load:compras');
-        console.warn('Error al cargar compras:', err);
-      }
-
-      // 7. Fetch Team Members via teamRepository
-      try {
-        perfStart('load:miembros');
-        const loadedMembers = await teamRepository.getMembersByStoreId(storeId);
-        perfEnd('load:miembros');
-        setTeamMembers(loadedMembers);
-      } catch (err) {
-        perfEnd('load:miembros');
-        console.warn('Error al cargar miembros del equipo:', err);
-      }
-
-      // 8. Fetch Invitations via teamRepository
-      try {
-        perfStart('load:invitaciones');
-        const loadedInvitations = await teamRepository.getInvitationsByStoreId(storeId);
-        perfEnd('load:invitaciones');
-        setInvitations(loadedInvitations);
-      } catch (err) {
-        perfEnd('load:invitaciones');
-        console.warn('Error al cargar invitaciones:', err);
-      }
-
-      // 9. Fetch Store Settings and User Preferences via settingsRepository
-      let currentUserId: string | undefined;
-      try {
-        const { data: { user: currentUser } } = await authRepository.getUser();
-        currentUserId = currentUser?.id;
-      } catch {}
-
-      perfStart('load:ajustes');
-      const { storeSettings: settData, userPreferences: prefData } = await settingsRepository.getSettings(storeId, currentUserId);
-      perfEnd('load:ajustes');
+      const { storeSettings: settData, userPreferences: prefData } = settingsData;
       const userPref = {
         darkMode: Boolean(prefData?.dark_mode),
         language: prefData?.language || 'Español (Sencillo)',
@@ -470,6 +538,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error('Error cargando datos de la tienda:', err);
       setError(err.message || 'Error de conexión con la base de datos');
       showToast('Error de conexión con la base de datos', 'alert', err.message);
+    } finally {
+      perfEnd('load:total');
     }
   }, [showToast]);
 
