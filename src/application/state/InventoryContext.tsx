@@ -231,6 +231,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const activeUserRef = useRef<string | null>(null);
   const authScreenRef = useRef<AuthScreen>('login');
   const isCheckingOutRef = useRef<boolean>(false);
+  const sessionLoadingUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     activeUserRef.current = user.id || null;
@@ -741,6 +742,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     let isMounted = true;
 
     async function handleSessionUser(sessionUser: any, isInitialLogin = false) {
+      sessionLoadingUserIdRef.current = sessionUser.id;
       try {
         if (isInitialLogin) {
           setLoading(true);
@@ -956,6 +958,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           authScreenRef.current = 'error';
         }
       } finally {
+        sessionLoadingUserIdRef.current = null;
         if (isMounted) setLoading(false);
       }
     }
@@ -964,6 +967,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // ONLY reset on explicit logout event
       if (event === 'SIGNED_OUT') {
+        sessionLoadingUserIdRef.current = null;
         if (isMounted) {
           setIsTestingRole(false);
           activeUserRef.current = null;
@@ -996,9 +1000,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
 
         // Ignorar SIGNED_IN repetidos del mismo user id si ya está autenticado en la app
-        if (activeUserRef.current === session.user.id && authScreenRef.current === 'authenticated') {
+        if (
+          sessionLoadingUserIdRef.current === session.user.id ||
+          (activeUserRef.current === session.user.id && authScreenRef.current === 'authenticated')
+        ) {
           return;
         }
+
+        sessionLoadingUserIdRef.current = session.user.id;
 
         // Diferir con setTimeout(..., 0) para quitar el await a Supabase dentro del callback
         setTimeout(() => {
@@ -1010,6 +1019,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     return () => {
       isMounted = false;
+      sessionLoadingUserIdRef.current = null;
       subscription.unsubscribe();
     };
   }, [loadStoreData]);
