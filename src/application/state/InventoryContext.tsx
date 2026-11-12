@@ -232,6 +232,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const authScreenRef = useRef<AuthScreen>('login');
   const isCheckingOutRef = useRef<boolean>(false);
   const sessionLoadingUserIdRef = useRef<string | null>(null);
+  const categoriesCacheRef = useRef<{ storeId: string; data: Array<{ id: string; name: string }>; resolved: Record<string, string> } | null>(null);
 
   useEffect(() => {
     activeUserRef.current = user.id || null;
@@ -593,6 +594,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setLoading(true);
 
       // 1. Limpiar completamente los estados de la tienda previa
+      categoriesCacheRef.current = null;
       setIsTestingRole(false);
       setProducts([]);
       setCart([]);
@@ -967,6 +969,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // ONLY reset on explicit logout event
       if (event === 'SIGNED_OUT') {
+        categoriesCacheRef.current = null;
         sessionLoadingUserIdRef.current = null;
         if (isMounted) {
           setIsTestingRole(false);
@@ -1441,11 +1444,64 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           let targetCategoryId = productData.categoryId;
           if (!targetCategoryId) {
             perfStart('add:categorias');
-            const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
+            const targetName = (productData.category || 'General').toLowerCase();
+
+            if (import.meta.env.DEV) {
+              console.debug('[CATEGORIAS CACHE]', {
+                cacheStoreId: categoriesCacheRef.current?.storeId,
+                userStoreId: user.storeId,
+                targetCategory: targetName,
+                cachedCategories: categoriesCacheRef.current?.data?.map(c => c.name),
+                resolvedMap: categoriesCacheRef.current?.resolved,
+              });
+            }
+
+            const cache = (categoriesCacheRef.current && categoriesCacheRef.current.storeId === user.storeId)
+              ? categoriesCacheRef.current
+              : null;
+
+            if (cache && cache.resolved[targetName]) {
+              perfCount('cache:categorias-hit');
+              targetCategoryId = cache.resolved[targetName];
+            } else {
+              perfCount('cache:categorias-miss');
+
+              let catData = cache?.data || null;
+              let cat = catData?.find(c => c.name.toLowerCase() === targetName);
+
+              // Regla (a): si no hay caché o la categoría buscada NO está en caché, consultar al servidor
+              if (!cat) {
+                const { data: serverCats } = await supabase
+                  .from('categories')
+                  .select('id, name')
+                  .eq('store_id', user.storeId);
+
+                if (serverCats && serverCats.length > 0) {
+                  catData = serverCats;
+                  cat = catData.find(c => c.name.toLowerCase() === targetName);
+                }
+              }
+
+              if (cat) {
+                targetCategoryId = cat.id;
+              } else if (catData && catData.length > 0) {
+                targetCategoryId = catData[0].id;
+              }
+
+              if (user.storeId && targetCategoryId) {
+                const existingResolved = cache?.resolved || {};
+                categoriesCacheRef.current = {
+                  storeId: user.storeId,
+                  data: catData || [],
+                  resolved: {
+                    ...existingResolved,
+                    ...(cat ? { [cat.name.toLowerCase()]: cat.id } : {}),
+                    [targetName]: targetCategoryId,
+                  },
+                };
+              }
+            }
             perfEnd('add:categorias');
-            const cat = catData?.find((c: any) => c.name.toLowerCase() === (productData.category || 'General').toLowerCase());
-            if (cat) targetCategoryId = cat.id;
-            else if (catData && catData.length > 0) targetCategoryId = catData[0].id;
           }
 
           perfStart('add:insert');
@@ -1581,9 +1637,38 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           if (updates.categoryId !== undefined) {
             dbUpdates.category_id = updates.categoryId;
           } else if (updates.category !== undefined) {
-            const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
-            const cat = catData?.find((c: any) => c.name.toLowerCase() === updates.category!.toLowerCase());
-            if (cat) dbUpdates.category_id = cat.id;
+            const targetName = updates.category!.toLowerCase();
+            const cache = (categoriesCacheRef.current && categoriesCacheRef.current.storeId === user.storeId)
+              ? categoriesCacheRef.current
+              : null;
+
+            if (cache && cache.resolved[targetName]) {
+              dbUpdates.category_id = cache.resolved[targetName];
+            } else {
+              let catData = cache?.data || null;
+              let cat = catData?.find((c: any) => c.name.toLowerCase() === targetName);
+              if (!cat) {
+                const { data: serverCats } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
+                if (serverCats && serverCats.length > 0) {
+                  catData = serverCats;
+                  cat = catData.find((c: any) => c.name.toLowerCase() === targetName);
+                }
+              }
+              const resolvedId = cat ? cat.id : (catData && catData.length > 0 ? catData[0].id : undefined);
+              if (resolvedId) {
+                dbUpdates.category_id = resolvedId;
+                if (user.storeId) {
+                  categoriesCacheRef.current = {
+                    storeId: user.storeId,
+                    data: catData || [],
+                    resolved: {
+                      ...(cache?.resolved || {}),
+                      [targetName]: resolvedId,
+                    },
+                  };
+                }
+              }
+            }
           }
           if (updates.unit !== undefined) dbUpdates.unit = updates.unit;
           if (updates.costPrice !== undefined) dbUpdates.cost_price = Number(updates.costPrice);
