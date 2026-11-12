@@ -31,7 +31,8 @@ import {
   estimatedVelocity,
   estimatedVelocityForPurchase,
   realVelocityCurrent,
-  resolveRealVelocity
+  resolveRealVelocity,
+  friendlyBulkError
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
 import { perfStart, perfEnd, perfCount, perfReport } from '@shared/utils/perf';
@@ -1852,19 +1853,16 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
           if (result.error) {
             console.error('Error original createMany:', result.error);
-            let friendlyError = result.error;
-            if (
-              result.error.includes('23505') ||
-              result.error.toLowerCase().includes('duplicate key') ||
-              result.error.toLowerCase().includes('uq_products_')
-            ) {
-              friendlyError = 'Algunos productos ya existen (nombre, código de barras o SKU repetido). Recarga la página para ver los que ya se guardaron.';
-            }
+            const friendlyError = friendlyBulkError(result.error, result.insertedCount, inputs.length);
+            const toastTitle = result.insertedCount > 0 ? 'Carga parcial con errores' : 'No se pudo guardar';
+            const toastMessage = result.insertedCount > 0
+              ? `Se guardaron ${result.insertedCount} de ${inputs.length} productos. ${friendlyError}`
+              : friendlyError;
 
             showToast(
-              'Carga parcial con errores',
+              toastTitle,
               'alert',
-              `Se guardaron ${result.insertedCount} de ${inputs.length} productos. ${friendlyError}`
+              toastMessage
             );
             return {
               success: result.insertedCount > 0 && !postSaveWarning,
@@ -1898,12 +1896,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         } catch (err: any) {
           perfEnd('bulk:total');
           console.error('Error en addProductsBulk:', err);
-          showToast('Error en carga masiva', 'alert', err.message || 'Error inesperado al guardar productos');
+          const friendlyError = friendlyBulkError(err, 0, inputs.length);
+          showToast('No se pudo guardar', 'alert', friendlyError);
           return {
             success: false,
             insertedCount: 0,
             totalCount: inputs.length,
-            error: err.message || 'Error inesperado',
+            error: friendlyError,
           };
         }
       },

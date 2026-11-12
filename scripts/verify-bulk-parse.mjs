@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseBulkProducts } from '../src/application/logic/bulkProductParser.ts';
+import { friendlyBulkError } from '../src/application/logic/bulkErrorMessages.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -291,6 +292,44 @@ for (let i = 0; i < allDatasets.length; i++) {
     assert(collisions === 0, `${d1.name} y ${d2.name} sin nombres/códigos/SKUs en común`);
   }
 }
+
+// ----------------------------------------------------------------------------
+// 13. Verificación de friendlyBulkError
+// ----------------------------------------------------------------------------
+console.log('\n13. Verificación de friendlyBulkError:');
+
+// a) Error de red con 0 guardados
+const netErr0 = new TypeError('Failed to fetch');
+const msgNet0 = friendlyBulkError(netErr0, 0, 60);
+assert(
+  msgNet0.includes('No hay conexión con el servidor. No se guardó ningún producto.'),
+  'Red con 0 guardados retorna mensaje sin productos guardados'
+);
+
+// b) Error de red con parciales
+const netErrPartial = new Error('NetworkError when attempting to fetch resource.');
+const msgNetPartial = friendlyBulkError(netErrPartial, 25, 60);
+assert(
+  msgNetPartial.includes('Se perdió la conexión. Se guardaron 25 de 60 productos.') &&
+  msgNetPartial.includes('Vuelve a pegar el archivo'),
+  'Red con parciales retorna mensaje de recuperación'
+);
+
+// c) Error 23505 (clave duplicada)
+const dupErr = { code: '23505', message: 'duplicate key value violates unique constraint "uq_products_store_barcode"' };
+const msgDup = friendlyBulkError(dupErr, 10, 60);
+assert(
+  msgDup.includes('Algunos productos ya existen (nombre, código de barras o SKU repetido)'),
+  'Código 23505 traduce a mensaje amable de duplicados'
+);
+
+// d) Error genérico
+const genErr = new Error('Permiso denegado por RLS');
+const msgGen = friendlyBulkError(genErr, 0, 60);
+assert(
+  msgGen === 'No se pudo guardar: Permiso denegado por RLS',
+  'Error genérico antepone "No se pudo guardar: "'
+);
 
 console.log(`\n=======================================================`);
 console.log(`✅ ¡Todas las ${passedTests} de ${totalTests} pruebas pasaron exitosamente!`);
