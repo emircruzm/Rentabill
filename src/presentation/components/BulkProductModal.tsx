@@ -1,15 +1,15 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   X, 
   Upload, 
-  FileSpreadsheet, 
   Download, 
   AlertCircle, 
   CheckCircle2, 
   HelpCircle,
   Loader2,
   PackagePlus,
-  RefreshCw
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { useInventory, parseBulkProducts, BulkParseResult } from '@application/index';
 import { formatCurrency } from '@shared/formatters/index';
@@ -17,17 +17,20 @@ import { formatCurrency } from '@shared/formatters/index';
 interface BulkProductModalProps {
   isOpen: boolean;
   onClose: () => void;
+  triggerButtonId?: string;
 }
 
 export const BulkProductModal: React.FC<BulkProductModalProps> = ({
   isOpen,
   onClose,
+  triggerButtonId = 'btn-carga-rapida',
 }) => {
   const { products, addProductsBulk, showToast } = useInventory();
 
   const [inputText, setInputText] = useState('');
   const [parseResult, setParseResult] = useState<BulkParseResult | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [progress, setProgress] = useState({ saved: 0, total: 0 });
   const [saveSummary, setSaveSummary] = useState<{
     saved: number;
@@ -37,6 +40,33 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Bloquear el scroll del fondo mientras el modal está abierto
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isOpen]);
+
+  // Manejar tecla Esc para cerrar y devolver foco accesible
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSaving) {
+        handleClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, isSaving]);
 
   // Lista de categorías conocidas inferidas de los productos existentes
   const knownCategories = useMemo(() => {
@@ -141,10 +171,13 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
       });
 
       if (res.success && !res.warning) {
+        const savedText = res.insertedCount === 1 
+          ? 'Se guardó 1 producto con éxito.' 
+          : `Se guardaron ${res.insertedCount} productos con éxito.`;
         showToast(
           'Carga completada',
           'success',
-          `Se guardaron ${res.insertedCount} productos con éxito.`
+          savedText
         );
       } else if (res.success && res.warning) {
         showToast(
@@ -180,6 +213,10 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
     if (isSaving) return;
     handleReset();
     onClose();
+    // Devolver el foco al botón que abrió el modal
+    setTimeout(() => {
+      document.getElementById(triggerButtonId)?.focus();
+    }, 50);
   };
 
   if (!isOpen) return null;
@@ -188,38 +225,54 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
   const errorCount = parseResult?.resumen.conError || 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs">
-      <div className="relative w-full max-w-3xl max-h-[92vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden transition-colors">
-        
+    <div 
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-xs p-0 sm:p-4 animate-in fade-in duration-200"
+      onClick={handleClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-bulk-title"
+    >
+      <div 
+        className="w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] sm:max-h-[88vh] overflow-hidden animate-in slide-in-from-bottom-6 sm:slide-in-from-bottom-0 duration-300 pb-safe"
+        onClick={e => e.stopPropagation()}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        {/* Mobile handle indicator */}
+        <div className="sm:hidden flex justify-center pt-2.5 pb-1">
+          <div className="w-10 h-1 rounded-full bg-slate-300" />
+        </div>
+
         {/* Cabecera */}
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 shrink-0">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-400 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-800 text-white flex items-center justify-center shadow-xs">
               <PackagePlus className="w-5 h-5 stroke-[2.5]" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-tight">
+              <h2 id="modal-bulk-title" className="text-base sm:text-lg font-black text-slate-900 leading-tight">
                 Carga Rápida de Productos
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500">
                 Pega desde Excel o sube un archivo CSV (hasta 500 productos)
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={handleClose}
             disabled={isSaving}
-            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+            aria-label="Cerrar ventana de carga rápida"
+            className="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors disabled:opacity-50 focus:outline-hidden focus:ring-2 focus:ring-emerald-700/30"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Contenido scrolleable */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-xs sm:text-sm">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 text-sm overflow-x-hidden">
           
-          {/* Barra de Acciones / Ayuda */}
-          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 rounded-2xl">
+          {/* Barra de Acciones: Subir archivo y Plantilla */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
             <div className="flex items-center gap-2">
               <input
                 ref={fileInputRef}
@@ -232,47 +285,67 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isSaving || isSavedSuccessfully}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-100 font-bold border border-slate-200 dark:border-slate-600 text-xs shadow-2xs active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none"
+                className="min-h-[44px] flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-800 font-bold border border-slate-200 text-xs shadow-2xs active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none focus:outline-hidden focus:ring-2 focus:ring-emerald-700/30"
               >
-                <Upload className="w-3.5 h-3.5" />
+                <Upload className="w-4 h-4 text-emerald-800" />
                 <span>Subir archivo CSV</span>
               </button>
 
               <button
                 type="button"
                 onClick={downloadTemplate}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 font-bold text-xs transition-colors"
+                className="min-h-[44px] flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-emerald-800 hover:bg-slate-100 font-bold text-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-700/30"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-4 h-4" />
                 <span>Descargar plantilla</span>
               </button>
             </div>
 
-            <span className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+            <span className="text-xs text-slate-500 font-medium hidden sm:inline">
               Separadores: Tabulación (Excel), coma (,) o punto y coma (;)
             </span>
           </div>
 
-          {/* Ayuda de decimales y formato */}
-          <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 rounded-2xl text-[11px] text-amber-900 dark:text-amber-200 flex items-start gap-2">
-            <HelpCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
-              <p className="font-bold">Recomendaciones de formato:</p>
-              <p>
-                • Si tu archivo usa <strong>coma (,)</strong> como separador de columnas, los decimales deben escribirse con <strong>punto (.)</strong> (ej: <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">10.50</code>).
-              </p>
-              <p>
-                • Si copias y pegas celdas directo de Excel, el separador es <strong>tabulación</strong> y se detecta automáticamente.
-              </p>
-              <p>
-                • Columnas: <strong>Nombre, Precio Compra, Precio Venta, Stock, Categoría, Código de Barras, SKU, Unidad</strong>.
-              </p>
-            </div>
+          {/* Bloque Plegable: ¿Cómo preparo mi lista? (cerrado por defecto) */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setIsHelpOpen(prev => !prev)}
+              aria-expanded={isHelpOpen}
+              className="w-full p-3.5 flex items-center justify-between text-left text-xs font-bold text-slate-700 hover:bg-slate-100/70 transition-colors focus:outline-hidden focus:ring-2 focus:ring-emerald-700/20"
+            >
+              <span className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-emerald-800 shrink-0" />
+                <span>¿Cómo preparo mi lista?</span>
+              </span>
+              {isHelpOpen ? (
+                <ChevronUp className="w-4 h-4 text-slate-500" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-slate-500" />
+              )}
+            </button>
+
+            {isHelpOpen && (
+              <div className="px-3.5 pb-3.5 pt-1 text-xs text-slate-600 border-t border-slate-200/60 space-y-1.5 animate-in fade-in duration-150">
+                <p>
+                  • Si tu archivo usa <strong>coma (,)</strong> como separador de columnas, los decimales deben escribirse con <strong>punto (.)</strong> (ej: <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono text-xs text-slate-800">10.50</code>).
+                </p>
+                <p>
+                  • Si copias y pegas celdas directo de Excel, el separador es <strong>tabulación</strong> y se detecta automáticamente.
+                </p>
+                <p>
+                  • Columnas recomendadas: <strong>Nombre, Precio Compra, Precio Venta, Stock, Categoría, Código de Barras, SKU, Unidad</strong>.
+                </p>
+                <p className="text-slate-500">
+                  • La categoría es opcional: si la dejas vacía, se asignará <strong>General</strong> automáticamente.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Área de texto para pegar */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
               Pega aquí el contenido de tus filas:
             </label>
             <textarea
@@ -281,140 +354,219 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
               disabled={isSaving || isSavedSuccessfully}
               readOnly={isSavedSuccessfully}
               rows={5}
-              placeholder="Ejemplo:&#10;Arroz Costeño 1kg	3.80	4.50	20	Abarrotes	7750123456789	ARR-001	kg&#10;Aceite Primor 1L	8.50	10.20	15	Abarrotes		ACE-001	lt"
-              className="w-full p-3 font-mono text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-700 dark:focus:ring-emerald-500 transition-all resize-y"
+              placeholder="Arroz Costeño 1kg,3.80,4.50,20&#10;Aceite Primor 1L,8.50,10.20,15"
+              className="w-full p-3.5 font-mono text-sm bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-600 focus:ring-2 focus:ring-emerald-700/20 transition-all resize-y min-h-[120px] disabled:opacity-60"
             />
           </div>
 
           {/* Resumen del Parseo / Estado */}
           {parseResult && (
-            <div className="space-y-3 pt-2">
+            <div className="space-y-3 pt-1">
               
               {/* Badges de contadores */}
-              <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/60 rounded-2xl">
+              <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-200/80 rounded-2xl">
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                    <CheckCircle2 className="w-4 h-4" />
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700" />
                     <span>{validCount} {validCount === 1 ? 'fila válida' : 'filas válidas'}</span>
                   </div>
                   {errorCount > 0 && (
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400">
-                      <AlertCircle className="w-4 h-4" />
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-rose-700">
+                      <AlertCircle className="w-4 h-4 text-rose-600" />
                       <span>{errorCount} {errorCount === 1 ? 'con error' : 'con errores'}</span>
                     </div>
                   )}
                 </div>
 
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  <span>Delimitador: <strong className="font-mono">{parseResult.resumen.delimitadorDetectado === '\t' ? 'TAB' : parseResult.resumen.delimitadorDetectado}</strong></span>
-                  {parseResult.resumen.tieneEncabezado && <span className="ml-2 font-semibold text-emerald-800 dark:text-emerald-400">✓ Encabezado detectado</span>}
+                <div className="text-xs text-slate-500">
+                  <span>Delimitador: <strong className="font-mono text-slate-700">{parseResult.resumen.delimitadorDetectado === '\t' ? 'TAB' : parseResult.resumen.delimitadorDetectado}</strong></span>
+                  {parseResult.resumen.tieneEncabezado && <span className="ml-2 font-semibold text-emerald-800">✓ Encabezado detectado</span>}
                 </div>
               </div>
 
-              {/* Error global (ej. > 500 filas) */}
+              {/* Error Global si excede el límite */}
               {parseResult.resumen.errorGlobal && (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl text-xs text-rose-800 dark:text-rose-300 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                  <span>{parseResult.resumen.errorGlobal}</span>
+                <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span className="font-medium">{parseResult.resumen.errorGlobal}</span>
                 </div>
               )}
 
-              {/* Tabla de Vista Previa */}
-              {parseResult.filas.length > 0 && (
-                <div className="border border-slate-200 dark:border-slate-700/80 rounded-2xl overflow-hidden shadow-2xs">
-                  <div className="max-h-60 overflow-y-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
-                        <tr>
-                          <th className="py-2 px-2.5 w-10 text-center">#</th>
-                          <th className="py-2 px-2.5">Producto</th>
-                          <th className="py-2 px-2.5">P. Compra</th>
-                          <th className="py-2 px-2.5">P. Venta</th>
-                          <th className="py-2 px-2.5">Stock</th>
-                          <th className="py-2 px-2.5">Categoría</th>
-                          <th className="py-2 px-2.5 text-center">Estado</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {parseResult.filas.map((fila) => (
-                          <tr
-                            key={fila.numero}
-                            className={`transition-colors ${
-                              fila.esValida
-                                ? 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
-                                : 'bg-rose-50/40 dark:bg-rose-950/20 hover:bg-rose-50/70 dark:hover:bg-rose-950/30'
-                            }`}
-                          >
-                            <td className="py-2 px-2.5 text-center font-mono text-[11px] text-slate-400">
-                              {fila.numero}
-                            </td>
-                            <td className="py-2 px-2.5">
-                              <span className="font-semibold text-slate-900 dark:text-slate-100 block">
-                                {fila.datos?.name}
-                              </span>
-                              {fila.datos?.barcode && (
-                                <span className="text-[10px] text-slate-400 font-mono block">
-                                  Cod: {fila.datos.barcode}
-                                </span>
-                              )}
-                              {!fila.esValida && fila.errores.length > 0 && (
-                                <div className="mt-1 space-y-0.5">
-                                  {fila.errores.map((err, i) => (
-                                    <span key={i} className="text-[10px] text-rose-600 dark:text-rose-400 flex items-center gap-1 font-medium">
-                                      • {err}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </td>
-                            <td className="py-2 px-2.5 font-mono text-slate-700 dark:text-slate-300">
-                              {formatCurrency(fila.datos?.costPrice || 0)}
-                            </td>
-                            <td className="py-2 px-2.5 font-mono text-slate-900 dark:text-slate-100 font-bold">
-                              {formatCurrency(fila.datos?.salePrice || 0)}
-                            </td>
-                            <td className="py-2 px-2.5 font-mono text-slate-700 dark:text-slate-300">
-                              {fila.datos?.stock} {fila.datos?.unit || 'pza'}
-                            </td>
-                            <td className="py-2 px-2.5 text-slate-600 dark:text-slate-300">
-                              <span className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-medium">
-                                {fila.datos?.category || 'General'}
-                              </span>
-                            </td>
-                            <td className="py-2 px-2.5 text-center">
-                              {fila.esValida ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-400">
-                                  <CheckCircle2 className="w-3 h-3" /> OK
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-400">
-                                  <AlertCircle className="w-3 h-3" /> Error
-                                </span>
-                              )}
-                            </td>
-                          </tr>
+              {/* Vista Previa Móvil: Tarjetas individuales (pantallas < 640px) */}
+              <div className="sm:hidden space-y-2.5">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">
+                  Vista previa de filas:
+                </p>
+                {parseResult.filas.map((f, idx) => (
+                  <div
+                    key={f.numero || idx}
+                    className={`p-3.5 rounded-2xl border transition-all ${
+                      f.esValida
+                        ? 'bg-white border-slate-200 shadow-2xs'
+                        : 'bg-rose-50/40 border-rose-200 shadow-2xs'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-mono text-slate-400">#{f.numero}</span>
+                          <span className="text-sm font-bold text-slate-900 leading-snug break-words">
+                            {f.datos?.name || <em className="text-slate-400 font-normal">(Sin nombre)</em>}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {f.datos?.category || 'General'}
+                          {f.datos?.barcode ? ` • Código: ${f.datos.barcode}` : f.datos?.sku ? ` • SKU: ${f.datos.sku}` : ''}
+                        </p>
+                      </div>
+
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold shrink-0 ${
+                        f.esValida
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}>
+                        {f.esValida ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>Válido</span>
+                          </>
+                        ) : (
+                          <>
+                            <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                            <span>Con error</span>
+                          </>
+                        )}
+                      </span>
+                    </div>
+
+                    {f.datos && (
+                      <div className="grid grid-cols-2 gap-2 pt-2 mt-2 border-t border-slate-100 text-xs">
+                        <div>
+                          <span className="text-slate-400 block text-xs font-medium">Compra → Venta</span>
+                          <span className="font-mono font-semibold text-slate-800">
+                            {formatCurrency(f.datos.costPrice)} → <strong className="text-slate-900">{formatCurrency(f.datos.salePrice)}</strong>
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-slate-400 block text-xs font-medium">Stock y unidad</span>
+                          <span className="font-mono font-bold text-slate-900">
+                            {f.datos.stock} {f.datos.unit}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {!f.esValida && f.errores.length > 0 && (
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-rose-100/70 border border-rose-200 text-xs text-rose-800 space-y-1">
+                        {f.errores.map((err, i) => (
+                          <div key={i} className="flex items-start gap-1.5 font-medium leading-tight">
+                            <span className="text-rose-500 font-bold">•</span>
+                            <span>{err}</span>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                    )}
                   </div>
+                ))}
+              </div>
+
+              {/* Vista Previa Escritorio: Tabla (pantallas >= 640px) */}
+              <div className="hidden sm:block border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                <div className="max-h-72 overflow-y-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead className="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 z-10">
+                      <tr>
+                        <th className="py-2.5 px-3 w-10 text-center">#</th>
+                        <th className="py-2.5 px-3">Producto</th>
+                        <th className="py-2.5 px-3 w-20 text-right">Compra</th>
+                        <th className="py-2.5 px-3 w-20 text-right">Venta</th>
+                        <th className="py-2.5 px-3 w-16 text-right">Stock</th>
+                        <th className="py-2.5 px-3 w-24">Categoría</th>
+                        <th className="py-2.5 px-3 w-24 text-center">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {parseResult.filas.map((f, idx) => (
+                        <tr 
+                          key={f.numero || idx}
+                          className={`transition-colors ${
+                            f.esValida 
+                              ? 'hover:bg-slate-50' 
+                              : 'bg-rose-50/40 hover:bg-rose-50/70'
+                          }`}
+                        >
+                          <td className="py-2 px-3 text-center font-mono text-slate-400 text-xs">
+                            {f.numero}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span className="font-semibold text-slate-900 block text-xs">
+                              {f.datos?.name || <em className="text-slate-400 font-normal">(Sin nombre)</em>}
+                            </span>
+                            {f.datos?.barcode && (
+                              <span className="text-xs text-slate-400 font-mono block">
+                                Cód: {f.datos.barcode}
+                              </span>
+                            )}
+                            {!f.esValida && f.errores.length > 0 && (
+                              <div className="mt-1 space-y-0.5">
+                                {f.errores.map((err, i) => (
+                                  <span key={i} className="text-xs text-rose-700 flex items-center gap-1 font-medium">
+                                    <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                                    <span>{err}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-slate-700 text-right text-xs">
+                            {f.datos ? formatCurrency(f.datos.costPrice) : '-'}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-slate-900 font-bold text-right text-xs">
+                            {f.datos ? formatCurrency(f.datos.salePrice) : '-'}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-slate-700 text-right text-xs">
+                            {f.datos ? `${f.datos.stock} ${f.datos.unit}` : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-slate-700 text-xs">
+                            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-xs font-medium">
+                              {f.datos?.category || 'General'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-center text-xs">
+                            {f.esValida ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                                <span>Válido</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800">
+                                <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+                                <span>Error</span>
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              )}
+              </div>
             </div>
           )}
 
-          {/* Barra de Progreso durante el guardado */}
+          {/* Barra de Progreso durante guardado */}
           {isSaving && (
-            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-2">
-              <div className="flex items-center justify-between text-xs font-bold text-emerald-900 dark:text-emerald-200">
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-emerald-900">
                 <span className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-emerald-700 dark:text-emerald-400" />
+                  <Loader2 className="w-4 h-4 animate-spin text-emerald-700" />
                   Guardando productos en la base de datos...
                 </span>
                 <span>{progress.saved} de {progress.total}</span>
               </div>
-              <div className="w-full h-2.5 bg-emerald-100 dark:bg-emerald-900/60 rounded-full overflow-hidden">
+              <div className="w-full h-2.5 bg-emerald-100 rounded-full overflow-hidden">
                 <div 
-                  className="bg-emerald-700 dark:bg-emerald-500 h-full transition-all duration-300"
+                  className="bg-emerald-700 h-full transition-all duration-300"
                   style={{ width: `${progress.total > 0 ? (progress.saved / progress.total) * 100 : 0}%` }}
                 />
               </div>
@@ -425,18 +577,18 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
           {saveSummary && (
             <div className={`p-4 rounded-2xl border ${
               saveSummary.error
-                ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+                ? 'bg-rose-50 border-rose-200 text-rose-900'
                 : saveSummary.warning
-                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200'
-                : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                ? 'bg-amber-50 border-amber-200 text-amber-900'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-900'
             }`}>
               <div className="flex items-center gap-2 font-bold text-sm">
                 {saveSummary.error ? (
-                  <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
+                  <AlertCircle className="w-5 h-5 text-rose-600" />
                 ) : saveSummary.warning ? (
-                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                  <AlertCircle className="w-5 h-5 text-amber-600" />
                 ) : (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />
+                  <CheckCircle2 className="w-5 h-5 text-emerald-700" />
                 )}
                 <span>
                   {saveSummary.error
@@ -446,19 +598,27 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
                     : '¡Carga completada con éxito!'}
                 </span>
               </div>
-              <p className="mt-1 text-xs">
-                Se guardaron <strong>{saveSummary.saved}</strong> productos.
+              <p className="mt-1 text-xs text-slate-700">
+                {saveSummary.saved === 1
+                  ? <span>Se guardó <strong>1 producto</strong>.</span>
+                  : <span>Se guardaron <strong>{saveSummary.saved} productos</strong>.</span>
+                }
                 {saveSummary.skipped > 0 && (
-                  <span> Se omitieron <strong>{saveSummary.skipped}</strong> filas no válidas o fallidas.</span>
+                  <span>
+                    {saveSummary.skipped === 1
+                      ? <span> Se omitió <strong>1 fila</strong> no válida o fallida.</span>
+                      : <span> Se omitieron <strong>{saveSummary.skipped} filas</strong> no válidas o fallidas.</span>
+                    }
+                  </span>
                 )}
               </p>
               {saveSummary.warning && (
-                <p className="mt-1 text-xs text-amber-800 dark:text-amber-300 font-medium">
+                <p className="mt-1 text-xs text-amber-800 font-medium">
                   {saveSummary.warning}
                 </p>
               )}
               {saveSummary.error && (
-                <p className="mt-1 text-xs text-rose-600 dark:text-rose-400 font-medium">
+                <p className="mt-1 text-xs text-rose-700 font-medium">
                   Detalle del error: {saveSummary.error}
                 </p>
               )}
@@ -466,14 +626,14 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
           )}
         </div>
 
-        {/* Footer / Botones */}
-        <div className="flex items-center justify-between p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
+        {/* Footer Fijo / Botones */}
+        <div className="flex items-center justify-between p-3.5 sm:p-5 border-t border-slate-100 bg-white shrink-0 gap-2">
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleClose}
               disabled={isSaving}
-              className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs transition-colors disabled:opacity-50"
+              className="min-h-[44px] px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors disabled:opacity-50 focus:outline-hidden focus:ring-2 focus:ring-slate-300"
             >
               {saveSummary?.saved ? 'Cerrar' : 'Cancelar'}
             </button>
@@ -482,7 +642,7 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
               <button
                 type="button"
                 onClick={handleReset}
-                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition-colors"
+                className="min-h-[44px] px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors focus:outline-hidden focus:ring-2 focus:ring-slate-300"
               >
                 Nueva carga
               </button>
@@ -491,15 +651,15 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
 
           <div className="flex items-center gap-2">
             {!isSavedSuccessfully && errorCount > 0 && validCount > 0 && (
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                (Se omitirán {errorCount} {errorCount === 1 ? 'fila' : 'filas'})
+              <span className="text-xs text-slate-500 hidden sm:inline">
+                (Se {errorCount === 1 ? 'omitirá 1 fila' : `omitirán ${errorCount} filas`})
               </span>
             )}
             <button
               type="button"
               onClick={handleSave}
               disabled={validCount === 0 || isSaving || isSavedSuccessfully}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs shadow-md shadow-emerald-900/20 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none"
+              className="min-h-[44px] flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-800 hover:bg-emerald-900 text-white font-bold text-xs shadow-md shadow-emerald-900/20 active:scale-95 transition-all disabled:opacity-50 disabled:pointer-events-none focus:outline-hidden focus:ring-2 focus:ring-emerald-700/40"
             >
               {isSaving ? (
                 <>
@@ -509,7 +669,7 @@ export const BulkProductModal: React.FC<BulkProductModalProps> = ({
               ) : (
                 <>
                   <PackagePlus className="w-4 h-4" />
-                  <span>Guardar {validCount} {validCount === 1 ? 'producto' : 'productos'}</span>
+                  <span>Guardar {validCount === 1 ? '1 producto' : `${validCount} productos`}</span>
                 </>
               )}
             </button>

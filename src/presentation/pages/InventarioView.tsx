@@ -525,8 +525,9 @@ export const InventarioView: React.FC = () => {
       {canCreateProducts && (
         <div className="fixed bottom-24 right-4 sm:right-[max(1rem,calc(50%-13rem))] z-30 pointer-events-auto flex items-center gap-2">
           <button
+            id="btn-carga-rapida"
             onClick={() => setIsBulkModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-3 rounded-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs shadow-xl shadow-slate-900/30 active:scale-95 transition-all"
+            className="flex items-center gap-1.5 px-3.5 py-3 rounded-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs shadow-xl shadow-slate-900/30 active:scale-95 transition-all focus:outline-hidden focus:ring-2 focus:ring-slate-400"
             title="Carga rápida de productos desde Excel o CSV"
           >
             <Upload className="w-4 h-4 stroke-[2.5]" />

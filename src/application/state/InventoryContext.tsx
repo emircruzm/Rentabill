@@ -1855,8 +1855,10 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             console.error('Error original createMany:', result.error);
             const friendlyError = friendlyBulkError(result.error, result.insertedCount, inputs.length);
             const toastTitle = result.insertedCount > 0 ? 'Carga parcial con errores' : 'No se pudo guardar';
+            const savedText = result.insertedCount === 1 ? 'Se guardó 1 producto' : `Se guardaron ${result.insertedCount} productos`;
+            const totalText = inputs.length === 1 ? '1 producto' : `${inputs.length} productos`;
             const toastMessage = result.insertedCount > 0
-              ? `Se guardaron ${result.insertedCount} de ${inputs.length} productos. ${friendlyError}`
+              ? `${savedText} de ${totalText}. ${friendlyError}`
               : friendlyError;
 
             showToast(
@@ -1883,10 +1885,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             };
           }
 
+          const successCountText = result.insertedCount === 1
+            ? 'Se guardó 1 producto correctamente.'
+            : `Se guardaron ${result.insertedCount} productos correctamente.`;
+
           showToast(
             'Carga masiva exitosa',
             'success',
-            `Se guardaron ${result.insertedCount} productos correctamente.`
+            successCountText
           );
           return {
             success: true,
