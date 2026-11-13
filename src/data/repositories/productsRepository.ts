@@ -1,20 +1,33 @@
 import { supabase } from '@data/supabase/client';
 import { Product } from '@shared/types/index';
 import { productMapper } from '@data/mappers/productMapper';
+import { perfCount } from '@shared/utils/perf';
+import { fetchAllPages } from '@shared/utils/pagination';
 
 export const BULK_CHUNK_SIZE = 100;
 
 export const productsRepository = {
   async getByStoreId(storeId: string): Promise<Product[]> {
-    const { data, error } = await supabase
-      .from('product_stats')
-      .select('*')
-      .eq('store_id', storeId)
-      .is('archived_at', null)
-      .order('created_at', { ascending: false });
+    const rawRows = await fetchAllPages(
+      async (from, to) => {
+        perfCount('load:productos:paginas', 1);
+        const { data, count, error } = await supabase
+          .from('product_stats')
+          .select('*', { count: 'exact' })
+          .eq('store_id', storeId)
+          .is('archived_at', null)
+          .order('id')
+          .range(from, to);
 
-    if (error) throw error;
-    return (data || []).map(productMapper.fromRow);
+        if (error) throw error;
+        return {
+          rows: data || [],
+          count: count ?? 0,
+        };
+      }
+    );
+
+    return rawRows.map(productMapper.fromRow);
   },
 
   async getById(storeId: string, productId: string): Promise<Product | null> {
