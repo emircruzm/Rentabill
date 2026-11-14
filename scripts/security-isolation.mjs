@@ -109,7 +109,7 @@ const EXPECTED_CODES = [
   'L.1', 'L.2', 'L.3', 'L.4', 'L.5', 'L.6', 'L.7', 'L.8', 'L.9', 'L.10',
   'L.11', 'L.12', 'L.13', 'L.14', 'L.15', 'L.16', 'L.17',
   'W.1', 'W.2', 'W.3', 'W.4', 'W.5', 'W.6', 'W.7', 'W.8', 'W.9', 'W.10',
-  'W.11', 'W.12', 'W.13', 'W.14', 'W.15', 'W.16', 'W.17', 'W.18', 'W.19', 'W.Foto',
+  'W.11', 'W.12', 'W.13', 'W.14', 'W.15', 'W.16', 'W.16b', 'W.17', 'W.18', 'W.19', 'W.Foto',
   'R.1', 'R.2', 'R.3', 'R.4', 'R.5', 'R.6', 'R.7',
   'X.1',
   'N.1', 'N.2', 'N.3', 'N.4',
@@ -314,46 +314,30 @@ async function main() {
     if (errSup || !supData) throw new Error(`Error al crear proveedor: ${errSup?.message}`);
     const supplierId = supData.id;
 
-    // 5. Crear 1 compra y partida de compra
+    // 5. Crear 1 compra y partida de compra con process_purchase (payload exacto con snake_case)
     const { data: purRes, error: errPur } = await supabaseA.rpc('process_purchase', {
       p_store_id: storeA_id,
       p_supplier_id: supplierId,
-      p_items: [{ productId: prod2.id, quantity: 5, unitCost: 12.00 }],
+      p_items: [{ product_id: prod2.id, quantity: 5, unit_cost: 12.00 }],
       p_note: 'Compra control FASE 5B',
       p_payment_condition: 'contado',
       p_credit_days: 0,
     });
-    if (!errPur && purRes?.success) {
-      purchaseId = purRes.purchase_id;
-      console.log(`✅ Compra de control procesada: ${shortId(purchaseId)}`);
-    } else {
-      const { data: insPur } = await supabaseA
-        .from('purchases')
-        .insert({
-          store_id: storeA_id,
-          supplier_id: supplierId,
-          total: 60.00,
-          payment_condition: 'contado',
-          credit_days: 0,
-          paid_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single();
-      if (insPur) {
-        purchaseId = insPur.id;
-        await supabaseA.from('purchase_items').insert({
-          store_id: storeA_id,
-          purchase_id: purchaseId,
-          product_id: prod2.id,
-          quantity: 5,
-          unit_cost: 12.00,
-        });
-        console.log(`✅ Compra de control insertada: ${shortId(purchaseId)}`);
-      }
+    if (errPur || !purRes?.success) {
+      console.error('❌ Error COMPLETO en process_purchase A:', {
+        code: errPur?.code,
+        message: errPur?.message,
+        details: errPur?.details,
+        hint: errPur?.hint,
+        response: purRes,
+      });
+      throw new Error(`process_purchase de control falló: [${errPur?.code}] ${errPur?.message || JSON.stringify(purRes)}`);
     }
+    purchaseId = purRes.purchase_id;
+    console.log(`✅ Compra de control procesada con éxito vía RPC: ID ${shortId(purchaseId)} (Total: S/ ${purRes.total})`);
 
-    // 6. Crear 1 simulación
-    const { error: errSim } = await supabaseA
+    // 6. Crear 1 simulación (solo columnas con GRANT INSERT, omitiendo status)
+    const { data: simData, error: errSim } = await supabaseA
       .from('simulations')
       .insert({
         store_id: storeA_id,
@@ -368,9 +352,15 @@ async function main() {
         projected_days_to_sell: 7,
         projected_daily_profit: 7.14,
         verdict: 'CONVIENE',
-        status: 'PENDIENTE',
-      });
-    if (errSim) console.warn('⚠️ No se pudo insertar fila de control en simulations:', errSim.message);
+        details: {},
+      })
+      .select('id')
+      .single();
+    if (errSim) {
+      console.warn('⚠️ No se pudo insertar fila de control en simulations:', errSim.code, errSim.message);
+    } else {
+      console.log(`✅ Simulación de control creada: ID ${shortId(simData?.id)}`);
+    }
 
     // 7. Crear 1 invitación de equipo
     const { data: invData, error: errInv } = await supabaseA
@@ -387,6 +377,7 @@ async function main() {
       console.warn('⚠️ No se pudo insertar fila de control en store_invitations:', errInv.message);
     } else {
       invitationTokenA = invData?.token || null;
+      console.log(`✅ Invitación de control creada para tienda A.`);
     }
 
     // 8. Asegurar user_preferences para Usuario A
@@ -608,7 +599,6 @@ async function main() {
         projected_days_to_sell: 5,
         projected_daily_profit: 5.00,
         verdict: 'CONVIENE',
-        status: 'PENDIENTE',
       })
       .select('id');
     if (insSimErrB) {
@@ -818,7 +808,7 @@ async function main() {
       recordResult('W.15', 'UPDATE en nombre de tienda A', 'FALLA', 'UPDATE indebido sobre tienda A permitido');
     }
 
-    // W.16: UPDATE en producto de A (precio/stock)
+    // W.16: UPDATE en producto de A (precio/stock - stock sin GRANT UPDATE)
     const { data: updProdResB, error: updProdErrB } = await supabaseB
       .from('products')
       .update({ sale_price: 9999.00, stock: 0 })
@@ -831,6 +821,30 @@ async function main() {
       recordResult('W.16', 'UPDATE precio/stock de producto A', 'PASA', '0 filas afectadas por RLS');
     } else {
       recordResult('W.16', 'UPDATE precio/stock de producto A', 'FALLA', 'UPDATE indebido sobre producto de A permitido');
+    }
+
+    // W.16b: UPDATE en producto de A cambiando SOLO columna con GRANT UPDATE (sale_price)
+    const { data: updProdResB16b, error: updProdErrB16b } = await supabaseB
+      .from('products')
+      .update({ sale_price: 8888.00 })
+      .eq('id', prod1.id)
+      .select('id');
+
+    const { data: checkProdA16b } = await supabaseA
+      .from('products')
+      .select('sale_price')
+      .eq('id', prod1.id)
+      .single();
+
+    const priceIntact = Number(checkProdA16b?.sale_price) === Number(prod1.sale_price);
+
+    if (updProdErrB16b) {
+      const cls = classify(updProdErrB16b);
+      recordResult('W.16b', 'UPDATE columna autorizada (sale_price) en producto A', cls.status, `${cls.detail} (precio intacto: ${priceIntact ? 'SÍ' : 'NO'})`);
+    } else if ((!updProdResB16b || updProdResB16b.length === 0) && priceIntact) {
+      recordResult('W.16b', 'UPDATE columna autorizada (sale_price) en producto A', 'PASA', `0 filas afectadas por RLS. Precio de A inalterado (S/ ${checkProdA16b?.sale_price}).`);
+    } else {
+      recordResult('W.16b', 'UPDATE columna autorizada (sale_price) en producto A', 'FALLA', `Se alteró el precio del producto de A a S/ ${checkProdA16b?.sale_price}`);
     }
 
     // W.17: DELETE en store_members (eliminar miembro de A)
@@ -949,7 +963,7 @@ async function main() {
     const { data: rpcPur, error: errRpcPur } = await supabaseB.rpc('process_purchase', {
       p_store_id: storeA_id,
       p_supplier_id: supplierId,
-      p_items: [{ productId: prod1.id, quantity: 10, unitCost: 5.00 }],
+      p_items: [{ product_id: prod1.id, quantity: 10, unit_cost: 5.00 }],
     });
     const clsRpcPur = classify(errRpcPur || (rpcPur?.success === false ? { message: rpcPur?.error } : null), ['Solo un Administrador o Repositor puede registrar compras']);
     recordResult('R.3', 'RPC process_purchase en tienda A', clsRpcPur.status, clsRpcPur.detail);
