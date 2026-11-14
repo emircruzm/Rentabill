@@ -9,6 +9,7 @@ export * from './InviteTeamModal';
 export * from './LogoutConfirmModal';
 export * from './NotificationDropdown';
 export * from './ProfileModal';
+export * from './ProductCard';
 export * from './RoleTestBanner';
 export * from './StoreSelectorModal';
 export * from './ToastNotification';
