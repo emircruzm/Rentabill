@@ -2,7 +2,7 @@ import { supabase } from '@data/supabase/client';
 import { Product } from '@shared/types/index';
 import { productMapper } from '@data/mappers/productMapper';
 import { perfCount } from '@shared/utils/perf';
-import { fetchAllPages } from '@shared/utils/pagination';
+import { fetchAllPages, sortRowsByCreatedAtDesc } from '@shared/utils/pagination';
 
 export const BULK_CHUNK_SIZE = 100;
 
@@ -22,10 +22,18 @@ export const productsRepository = {
         if (error) throw error;
         return {
           rows: data || [],
-          count: count ?? 0,
+          count: count,
         };
+      },
+      {
+        onMissingCount: () => {
+          perfCount('load:productos:sin_conteo', 1);
+        },
       }
     );
+
+    // Conservar orden original de la app: created_at descendente (desempate por id)
+    sortRowsByCreatedAtDesc(rawRows);
 
     return rawRows.map(productMapper.fromRow);
   },
