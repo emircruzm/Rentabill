@@ -148,7 +148,7 @@ interface InventoryContextType {
   registerUser: (
     name: string, 
     email: string, 
-    password?: string, 
+    password: string, 
     role?: UserRole, 
     phone?: string
   ) => Promise<{ success: boolean; requiresEmailConfirmation?: boolean; error?: string }>;
@@ -2579,11 +2579,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const registerUser = useCallback(async (
     name: string, 
     email: string, 
-    password = 'password123',
+    password: string,
     role: UserRole = 'ADMIN',
     phone?: string
   ): Promise<{ success: boolean; requiresEmailConfirmation?: boolean; error?: string }> => {
-    if (!email || !name || !password) {
+    if (!password || password.length < 6) {
+      const msg = 'La contraseña debe tener al menos 6 caracteres.';
+      showToast(msg, 'alert');
+      return { success: false, error: msg };
+    }
+
+    if (!email || !name) {
       const msg = 'Por favor completa todos los campos requeridos';
       showToast(msg, 'alert');
       return { success: false, error: msg };
