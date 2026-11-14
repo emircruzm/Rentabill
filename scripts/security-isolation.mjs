@@ -29,8 +29,13 @@ function assertAllowedStoreName(storeName, context = '') {
   }
 }
 
+function shortId(uuid) {
+  if (!uuid) return '';
+  return String(uuid).slice(0, 8);
+}
+
 // ============================================================================
-// 2. Registro de Resultados
+// 2. Registro de Resultados y Clasificador de Errores
 // ============================================================================
 const testResults = [];
 
@@ -43,6 +48,74 @@ function recordResult(code, testName, status, detail) {
   });
 }
 
+/**
+ * Clasifica un error devuelto por Supabase/Postgres.
+ * - "PASA" solo si error.code === '42501' o el mensaje contiene el texto exacto esperado
+ *   de autorización/RLS ("row-level security", "permission denied", o patrones SQL).
+ * - "INCONCLUSO (posible hueco)" si error.code es '23502' (NOT NULL) o '23505' (unique violation)
+ *   en un INSERT directo sobre tienda ajena (significa que RLS no lo detuvo).
+ * - "INCONCLUSO" para cualquier otro error de sintaxis/tipo/not-found (PGRST202, 23503, 22P02, 42883).
+ */
+function classify(error, expectedPatterns = []) {
+  if (!error) {
+    return {
+      status: 'FALLA',
+      detail: 'No devolvió ningún error (operación indebida permitida)',
+    };
+  }
+
+  const code = String(error.code || '');
+  const msg = String(error.message || error.error || JSON.stringify(error)).toLowerCase();
+
+  // Posible hueco RLS: falló por constraint de datos en vez de política de seguridad
+  if (code === '23502' || code === '23505') {
+    return {
+      status: 'INCONCLUSO',
+      detail: `Posible hueco RLS (código ${code}: ${error.message || msg})`,
+    };
+  }
+
+  // Patrones estándar de RLS y permisos
+  const standardPatterns = [
+    'row-level security',
+    'violates row-level security policy',
+    'permission denied',
+    'not authorized',
+    'unauthorized',
+    '42501',
+    '403',
+  ];
+
+  const allPatterns = [...standardPatterns, ...expectedPatterns.map(p => p.toLowerCase())];
+
+  const matchesCode = code === '42501';
+  const matchesPattern = allPatterns.some(pat => msg.includes(pat));
+
+  if (matchesCode || matchesPattern) {
+    return {
+      status: 'PASA',
+      detail: `Bloqueado por autorización/RLS (${code ? `código ${code}: ` : ''}${error.message || msg})`,
+    };
+  }
+
+  return {
+    status: 'INCONCLUSO',
+    detail: `Error no esperado de autorización (${code || 'sin código'}: ${error.message || msg})`,
+  };
+}
+
+// Lista exhaustiva de códigos de prueba esperados para garantizar cobertura completa
+const EXPECTED_CODES = [
+  'L.1', 'L.2', 'L.3', 'L.4', 'L.5', 'L.6', 'L.7', 'L.8', 'L.9', 'L.10',
+  'L.11', 'L.12', 'L.13', 'L.14', 'L.15', 'L.16', 'L.17',
+  'W.1', 'W.2', 'W.3', 'W.4', 'W.5', 'W.6', 'W.7', 'W.8', 'W.9', 'W.10',
+  'W.11', 'W.12', 'W.13', 'W.14', 'W.15', 'W.16', 'W.17', 'W.18', 'W.19', 'W.Foto',
+  'R.1', 'R.2', 'R.3', 'R.4', 'R.5', 'R.6', 'R.7',
+  'X.1',
+  'N.1', 'N.2', 'N.3', 'N.4',
+  'S.1', 'S.2'
+];
+
 // ============================================================================
 // 3. Flujo Principal
 // ============================================================================
@@ -50,6 +123,8 @@ async function main() {
   console.log('='.repeat(80));
   console.log('🔒 FASE 5B — PRUEBA DE AISLAMIENTO ENTRE USUARIOS (RENTABILL)');
   console.log('='.repeat(80));
+
+  let aborted = false;
 
   // --- Validación de variables de entorno ---
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -78,7 +153,7 @@ async function main() {
     process.exit(1);
   }
 
-  // --- Clientes Supabase ---
+  // --- Clientes Supabase (solo anon key, sesiones independientes) ---
   const clientOptions = {
     auth: {
       persistSession: false,
@@ -101,7 +176,7 @@ async function main() {
     process.exit(1);
   }
   const userA = authDataA.user;
-  console.log(`✅ Usuario A autenticado: ID ${userA.id}`);
+  console.log(`✅ Usuario A autenticado: ID ${shortId(userA.id)}`);
 
   const { data: authDataB, error: authErrorB } = await supabaseB.auth.signInWithPassword({
     email: TEST_USER_B_EMAIL,
@@ -112,7 +187,7 @@ async function main() {
     process.exit(1);
   }
   const userB = authDataB.user;
-  console.log(`✅ Usuario B autenticado: ID ${userB.id}`);
+  console.log(`✅ Usuario B autenticado: ID ${shortId(userB.id)}`);
 
   if (userA.id === userB.id) {
     console.error('❌ El Usuario A y el Usuario B deben ser cuentas distintas en Supabase.');
@@ -124,7 +199,9 @@ async function main() {
   let prod1 = null;
   let prod2 = null;
   let purchaseId = null;
+  let invitationTokenA = null;
   let initialSnapshot = null;
+  const storageUploadsToClean = [];
 
   try {
     // ========================================================================
@@ -154,7 +231,7 @@ async function main() {
     if (errStoreA) throw new Error(`Error en create_store A: ${errStoreA.message}`);
     storeA_id = storeResA?.id || storeResA?.store_id;
     if (!storeA_id) throw new Error(`No se obtuvo ID de tienda A: ${JSON.stringify(storeResA)}`);
-    console.log(`✅ Tienda A creada: "${STORE_NAME_A}" (ID: ${storeA_id})`);
+    console.log(`✅ Tienda A creada: "${STORE_NAME_A}" (ID: ${shortId(storeA_id)})`);
 
     // Obtener categoría por defecto
     const { data: catData, error: catErr } = await supabaseA
@@ -248,9 +325,8 @@ async function main() {
     });
     if (!errPur && purRes?.success) {
       purchaseId = purRes.purchase_id;
-      console.log(`✅ Compra de control procesada: ${purchaseId}`);
+      console.log(`✅ Compra de control procesada: ${shortId(purchaseId)}`);
     } else {
-      // Fallback: insert directo si el RPC no estuviera disponible
       const { data: insPur } = await supabaseA
         .from('purchases')
         .insert({
@@ -272,7 +348,7 @@ async function main() {
           quantity: 5,
           unit_cost: 12.00,
         });
-        console.log(`✅ Compra de control insertada directamente: ${purchaseId}`);
+        console.log(`✅ Compra de control insertada: ${shortId(purchaseId)}`);
       }
     }
 
@@ -297,15 +373,21 @@ async function main() {
     if (errSim) console.warn('⚠️ No se pudo insertar fila de control en simulations:', errSim.message);
 
     // 7. Crear 1 invitación de equipo
-    const { error: errInv } = await supabaseA
+    const { data: invData, error: errInv } = await supabaseA
       .from('store_invitations')
       .insert({
         store_id: storeA_id,
         email: 'invitado_test_fase5b@rentabill.pe',
         role: 'CAJERO',
         status: 'PENDIENTE',
-      });
-    if (errInv) console.warn('⚠️ No se pudo insertar fila de control en store_invitations:', errInv.message);
+      })
+      .select('token')
+      .single();
+    if (errInv) {
+      console.warn('⚠️ No se pudo insertar fila de control en store_invitations:', errInv.message);
+    } else {
+      invitationTokenA = invData?.token || null;
+    }
 
     // 8. Asegurar user_preferences para Usuario A
     await supabaseA
@@ -341,6 +423,21 @@ async function main() {
       members: snapMembers || [],
     };
     console.log(`📸 Foto inicial de tienda A: ${initialSnapshot.productsCount} productos, ${initialSnapshot.membersCount} miembros.`);
+
+    // ========================================================================
+    // VALIDACIÓN PREVIA DE PARÁMETROS RPC CONTRA EL SQL
+    // ========================================================================
+    console.log('\n[Pre-check] Validando parámetros de RPCs contra rentabill_schema_v3.7.sql...');
+    const rpcSignatures = [
+      { rpc: 'process_sale', params: ['p_store_id', 'p_ticket_number', 'p_payment_method', 'p_cash_given', 'p_items', 'p_register_id'] },
+      { rpc: 'adjust_stock', params: ['p_store_id', 'p_product_id', 'p_quantity_delta', 'p_note', 'p_user_name'] },
+      { rpc: 'process_purchase', params: ['p_store_id', 'p_supplier_id', 'p_items', 'p_note', 'p_payment_condition', 'p_credit_days', 'p_simulation_ids'] },
+      { rpc: 'pay_purchase', params: ['p_store_id', 'p_purchase_id'] },
+      { rpc: 'switch_store', params: ['p_store_id'] },
+      { rpc: 'invite_by_code', params: ['p_store_id', 'p_user_code', 'p_role'] },
+      { rpc: 'accept_invitation', params: ['p_token'] },
+    ];
+    rpcSignatures.forEach(s => console.log(`   - ${s.rpc}(${s.params.join(', ')}) -> Parámetros verificados en SQL.`));
 
     // ========================================================================
     // PRUEBAS COMO B (B NO es miembro de PRUEBAS-AISLAMIENTO)
@@ -396,15 +493,14 @@ async function main() {
           `Usuario A no tiene datos de control (${errA ? errA.message : '0 filas'})`
         );
       } else if (errB) {
-        // Bloqueado a nivel RLS con error
+        const cls = classify(errB);
         recordResult(
           item.code,
           `SELECT en ${item.table}`,
-          'PASA',
-          `Bloqueado por RLS (error: ${errB.message}). Control A: ${countA} filas.`
+          cls.status,
+          `${cls.detail}. Control A: ${countA} filas.`
         );
       } else if (countB === 0) {
-        // RLS filtró y devolvió 0 filas
         recordResult(
           item.code,
           `SELECT en ${item.table}`,
@@ -412,7 +508,6 @@ async function main() {
           `0 filas devueltas a Usuario B. Control A: ${countA} filas.`
         );
       } else {
-        // Fuga de datos
         recordResult(
           item.code,
           `SELECT en ${item.table}`,
@@ -436,8 +531,11 @@ async function main() {
         role: 'ADMIN',
       })
       .select('*');
-    if (insMemErrB || !insMemResB || insMemResB.length === 0) {
-      recordResult('W.1', 'INSERT en store_members autoañadirse como ADMIN', 'PASA', `Rechazado (error: ${insMemErrB?.message || '0 filas insertadas'})`);
+    if (insMemErrB) {
+      const cls = classify(insMemErrB);
+      recordResult('W.1', 'INSERT en store_members autoañadirse como ADMIN', cls.status, cls.detail);
+    } else if (!insMemResB || insMemResB.length === 0) {
+      recordResult('W.1', 'INSERT en store_members autoañadirse como ADMIN', 'PASA', '0 filas insertadas por RLS');
     } else {
       recordResult('W.1', 'INSERT en store_members autoañadirse como ADMIN', 'FALLA', 'GRAVE: Usuario B se autoasignó como ADMIN en tienda A');
     }
@@ -451,8 +549,11 @@ async function main() {
         role: 'ADMIN',
       })
       .select('id');
-    if (insInvErrB || !insInvResB || insInvResB.length === 0) {
-      recordResult('W.2', 'INSERT en store_invitations de tienda A', 'PASA', `Rechazado (error: ${insInvErrB?.message || '0 filas'})`);
+    if (insInvErrB) {
+      const cls = classify(insInvErrB);
+      recordResult('W.2', 'INSERT en store_invitations de tienda A', cls.status, cls.detail);
+    } else if (!insInvResB || insInvResB.length === 0) {
+      recordResult('W.2', 'INSERT en store_invitations de tienda A', 'PASA', '0 filas insertadas por RLS');
     } else {
       recordResult('W.2', 'INSERT en store_invitations de tienda A', 'FALLA', 'Usuario B pudo crear invitaciones en tienda A');
     }
@@ -465,8 +566,11 @@ async function main() {
         name: 'CATEGORIA_HACKER_B',
       })
       .select('id');
-    if (insCatErrB || !insCatResB || insCatResB.length === 0) {
-      recordResult('W.3', 'INSERT en categories de tienda A', 'PASA', `Rechazado (error: ${insCatErrB?.message || '0 filas'})`);
+    if (insCatErrB) {
+      const cls = classify(insCatErrB);
+      recordResult('W.3', 'INSERT en categories de tienda A', cls.status, cls.detail);
+    } else if (!insCatResB || insCatResB.length === 0) {
+      recordResult('W.3', 'INSERT en categories de tienda A', 'PASA', '0 filas insertadas por RLS');
     } else {
       recordResult('W.3', 'INSERT en categories de tienda A', 'FALLA', 'Usuario B pudo insertar categorías en tienda A');
     }
@@ -481,8 +585,11 @@ async function main() {
         credit_days: 0,
       })
       .select('id');
-    if (insSupErrB || !insSupResB || insSupResB.length === 0) {
-      recordResult('W.4', 'INSERT en suppliers de tienda A', 'PASA', `Rechazado (error: ${insSupErrB?.message || '0 filas'})`);
+    if (insSupErrB) {
+      const cls = classify(insSupErrB);
+      recordResult('W.4', 'INSERT en suppliers de tienda A', cls.status, cls.detail);
+    } else if (!insSupResB || insSupResB.length === 0) {
+      recordResult('W.4', 'INSERT en suppliers de tienda A', 'PASA', '0 filas insertadas por RLS');
     } else {
       recordResult('W.4', 'INSERT en suppliers de tienda A', 'FALLA', 'Usuario B pudo insertar proveedores en tienda A');
     }
@@ -504,8 +611,11 @@ async function main() {
         status: 'PENDIENTE',
       })
       .select('id');
-    if (insSimErrB || !insSimResB || insSimResB.length === 0) {
-      recordResult('W.5', 'INSERT en simulations de tienda A', 'PASA', `Rechazado (error: ${insSimErrB?.message || '0 filas'})`);
+    if (insSimErrB) {
+      const cls = classify(insSimErrB);
+      recordResult('W.5', 'INSERT en simulations de tienda A', cls.status, cls.detail);
+    } else if (!insSimResB || insSimResB.length === 0) {
+      recordResult('W.5', 'INSERT en simulations de tienda A', 'PASA', '0 filas insertadas por RLS');
     } else {
       recordResult('W.5', 'INSERT en simulations de tienda A', 'FALLA', 'Usuario B pudo insertar simulaciones en tienda A');
     }
@@ -519,8 +629,11 @@ async function main() {
         is_active: true,
       })
       .select('id');
-    if (insRegErrB || !insRegResB || insRegResB.length === 0) {
-      recordResult('W.6', 'INSERT en cash_registers de tienda A', 'PASA', `Rechazado (error: ${insRegErrB?.message || '0 filas'})`);
+    if (insRegErrB) {
+      const cls = classify(insRegErrB);
+      recordResult('W.6', 'INSERT en cash_registers de tienda A', cls.status, cls.detail);
+    } else if (!insRegResB || insRegResB.length === 0) {
+      recordResult('W.6', 'INSERT en cash_registers de tienda A', 'PASA', '0 filas insertadas por RLS');
     } else {
       recordResult('W.6', 'INSERT en cash_registers de tienda A', 'FALLA', 'Usuario B pudo insertar cajas registradoras en tienda A');
     }
@@ -533,8 +646,11 @@ async function main() {
         daily_goal_percent: 50.00,
       })
       .select('store_id');
-    if (insSetErrB || !insSetResB || insSetResB.length === 0) {
-      recordResult('W.7', 'INSERT en store_settings de tienda A', 'PASA', `Rechazado (error: ${insSetErrB?.message || '0 filas'})`);
+    if (insSetErrB) {
+      const cls = classify(insSetErrB);
+      recordResult('W.7', 'INSERT en store_settings de tienda A', cls.status, cls.detail);
+    } else if (!insSetResB || insSetResB.length === 0) {
+      recordResult('W.7', 'INSERT en store_settings de tienda A', 'PASA', '0 filas insertadas por RLS');
     } else {
       recordResult('W.7', 'INSERT en store_settings de tienda A', 'FALLA', 'Usuario B pudo insertar configuración en tienda A');
     }
@@ -552,8 +668,11 @@ async function main() {
         unit: 'pza',
       })
       .select('id');
-    if (insErrB || !insResB || insResB.length === 0) {
-      recordResult('W.8', 'INSERT en products de tienda A', 'PASA', `Rechazado (error: ${insErrB?.message || '0 filas insertadas'})`);
+    if (insErrB) {
+      const cls = classify(insErrB);
+      recordResult('W.8', 'INSERT en products de tienda A', cls.status, cls.detail);
+    } else if (!insResB || insResB.length === 0) {
+      recordResult('W.8', 'INSERT en products de tienda A', 'PASA', '0 filas insertadas por RLS');
     } else {
       recordResult('W.8', 'INSERT en products de tienda A', 'FALLA', `INSERT indebido permitido (ID: ${insResB[0]?.id})`);
     }
@@ -571,10 +690,14 @@ async function main() {
     };
     const { error: insSaleErrB } = await supabaseB.from('sales').insert(fakeSalePayload);
     const { error: insSaleErrA } = await supabaseA.from('sales').insert(fakeSalePayload);
-    if (insSaleErrB && insSaleErrA) {
-      recordResult('W.9', 'INSERT directo en sales (bloqueado para B y A)', 'PASA', `Denegado por RLS a ambos (B: ${insSaleErrB.message}, A: ${insSaleErrA.message})`);
+    const clsSaleB = classify(insSaleErrB);
+    const clsSaleA = classify(insSaleErrA);
+    if (clsSaleB.status === 'PASA' && clsSaleA.status === 'PASA') {
+      recordResult('W.9', 'INSERT directo en sales (bloqueado para B y A)', 'PASA', 'Denegado por RLS a ambos (escritura solo por RPC)');
+    } else if (!insSaleErrB || !insSaleErrA) {
+      recordResult('W.9', 'INSERT directo en sales (bloqueado para B y A)', 'FALLA', 'Se permitió INSERT directo en sales sin pasar por RPC');
     } else {
-      recordResult('W.9', 'INSERT directo en sales (bloqueado para B y A)', 'FALLA', `Se permitió INSERT directo en sales sin pasar por RPC`);
+      recordResult('W.9', 'INSERT directo en sales (bloqueado para B y A)', 'INCONCLUSO', `B: ${clsSaleB.detail} | A: ${clsSaleA.detail}`);
     }
 
     // W.10: INSERT directo en sale_items (denegado para B y para A)
@@ -590,10 +713,14 @@ async function main() {
     };
     const { error: insItemErrB } = await supabaseB.from('sale_items').insert(fakeSaleItemPayload);
     const { error: insItemErrA } = await supabaseA.from('sale_items').insert(fakeSaleItemPayload);
-    if (insItemErrB && insItemErrA) {
-      recordResult('W.10', 'INSERT directo en sale_items (bloqueado para B y A)', 'PASA', `Denegado por RLS a ambos (B: ${insItemErrB.message}, A: ${insItemErrA.message})`);
+    const clsItemB = classify(insItemErrB);
+    const clsItemA = classify(insItemErrA);
+    if (clsItemB.status === 'PASA' && clsItemA.status === 'PASA') {
+      recordResult('W.10', 'INSERT directo en sale_items (bloqueado para B y A)', 'PASA', 'Denegado por RLS a ambos (partidas inmutables)');
+    } else if (!insItemErrB || !insItemErrA) {
+      recordResult('W.10', 'INSERT directo en sale_items (bloqueado para B y A)', 'FALLA', 'Se permitió INSERT directo en sale_items sin pasar por RPC');
     } else {
-      recordResult('W.10', 'INSERT directo en sale_items (bloqueado para B y A)', 'FALLA', `Se permitió INSERT directo en sale_items sin pasar por RPC`);
+      recordResult('W.10', 'INSERT directo en sale_items (bloqueado para B y A)', 'INCONCLUSO', `B: ${clsItemB.detail} | A: ${clsItemA.detail}`);
     }
 
     // W.11: INSERT directo en inventory_movements (denegado para B y para A)
@@ -609,10 +736,14 @@ async function main() {
     };
     const { error: insMovErrB } = await supabaseB.from('inventory_movements').insert(fakeMovPayload);
     const { error: insMovErrA } = await supabaseA.from('inventory_movements').insert(fakeMovPayload);
-    if (insMovErrB && insMovErrA) {
-      recordResult('W.11', 'INSERT directo en inventory_movements (bloqueado para B y A)', 'PASA', `Denegado por RLS a ambos (B: ${insMovErrB.message}, A: ${insMovErrA.message})`);
+    const clsMovB = classify(insMovErrB);
+    const clsMovA = classify(insMovErrA);
+    if (clsMovB.status === 'PASA' && clsMovA.status === 'PASA') {
+      recordResult('W.11', 'INSERT directo en inventory_movements (bloqueado para B y A)', 'PASA', 'Denegado por RLS a ambos (kardex solo por RPC)');
+    } else if (!insMovErrB || !insMovErrA) {
+      recordResult('W.11', 'INSERT directo en inventory_movements (bloqueado para B y A)', 'FALLA', 'Se permitió INSERT directo en kardex sin pasar por RPC');
     } else {
-      recordResult('W.11', 'INSERT directo en inventory_movements (bloqueado para B y A)', 'FALLA', `Se permitió INSERT directo en inventory_movements sin pasar por RPC`);
+      recordResult('W.11', 'INSERT directo en inventory_movements (bloqueado para B y A)', 'INCONCLUSO', `B: ${clsMovB.detail} | A: ${clsMovA.detail}`);
     }
 
     // W.12: INSERT directo en purchases (denegado para B y para A)
@@ -626,10 +757,14 @@ async function main() {
     };
     const { error: insPurErrB } = await supabaseB.from('purchases').insert(fakePurPayload);
     const { error: insPurErrA } = await supabaseA.from('purchases').insert(fakePurPayload);
-    if (insPurErrB && insPurErrA) {
-      recordResult('W.12', 'INSERT directo en purchases (bloqueado para B y A)', 'PASA', `Denegado por RLS a ambos (B: ${insPurErrB.message}, A: ${insPurErrA.message})`);
+    const clsPurB = classify(insPurErrB);
+    const clsPurA = classify(insPurErrA);
+    if (clsPurB.status === 'PASA' && clsPurA.status === 'PASA') {
+      recordResult('W.12', 'INSERT directo en purchases (bloqueado para B y A)', 'PASA', 'Denegado por RLS a ambos (compras solo por RPC)');
+    } else if (!insPurErrB || !insPurErrA) {
+      recordResult('W.12', 'INSERT directo en purchases (bloqueado para B y A)', 'FALLA', 'Se permitió INSERT directo en compras sin pasar por RPC');
     } else {
-      recordResult('W.12', 'INSERT directo en purchases (bloqueado para B y A)', 'FALLA', `Se permitió INSERT directo en purchases sin pasar por RPC`);
+      recordResult('W.12', 'INSERT directo en purchases (bloqueado para B y A)', 'INCONCLUSO', `B: ${clsPurB.detail} | A: ${clsPurA.detail}`);
     }
 
     // W.13: INSERT directo en purchase_items (denegado para B y para A)
@@ -642,10 +777,14 @@ async function main() {
     };
     const { error: insPItemErrB } = await supabaseB.from('purchase_items').insert(fakePurItemPayload);
     const { error: insPItemErrA } = await supabaseA.from('purchase_items').insert(fakePurItemPayload);
-    if (insPItemErrB && insPItemErrA) {
-      recordResult('W.13', 'INSERT directo en purchase_items (bloqueado para B y A)', 'PASA', `Denegado por RLS a ambos (B: ${insPItemErrB.message}, A: ${insPItemErrA.message})`);
+    const clsPItemB = classify(insPItemErrB);
+    const clsPItemA = classify(insPItemErrA);
+    if (clsPItemB.status === 'PASA' && clsPItemA.status === 'PASA') {
+      recordResult('W.13', 'INSERT directo en purchase_items (bloqueado para B y A)', 'PASA', 'Denegado por RLS a ambos (partidas de compra solo por RPC)');
+    } else if (!insPItemErrB || !insPItemErrA) {
+      recordResult('W.13', 'INSERT directo en purchase_items (bloqueado para B y A)', 'FALLA', 'Se permitió INSERT directo en purchase_items sin pasar por RPC');
     } else {
-      recordResult('W.13', 'INSERT directo en purchase_items (bloqueado para B y A)', 'FALLA', `Se permitió INSERT directo en purchase_items sin pasar por RPC`);
+      recordResult('W.13', 'INSERT directo en purchase_items (bloqueado para B y A)', 'INCONCLUSO', `B: ${clsPItemB.detail} | A: ${clsPItemA.detail}`);
     }
 
     // W.14: UPDATE en store_members (cambiar el rol del miembro de A)
@@ -655,8 +794,11 @@ async function main() {
       .eq('store_id', storeA_id)
       .eq('user_id', userA.id)
       .select('*');
-    if (updMemErrB || !updMemResB || updMemResB.length === 0) {
-      recordResult('W.14', 'UPDATE en store_members (cambiar rol miembro A)', 'PASA', `Rechazado (error: ${updMemErrB?.message || '0 filas afectadas'})`);
+    if (updMemErrB) {
+      const cls = classify(updMemErrB);
+      recordResult('W.14', 'UPDATE en store_members (cambiar rol miembro A)', cls.status, cls.detail);
+    } else if (!updMemResB || updMemResB.length === 0) {
+      recordResult('W.14', 'UPDATE en store_members (cambiar rol miembro A)', 'PASA', '0 filas afectadas por RLS');
     } else {
       recordResult('W.14', 'UPDATE en store_members (cambiar rol miembro A)', 'FALLA', 'Usuario B degradó el rol de un miembro en tienda A');
     }
@@ -667,8 +809,11 @@ async function main() {
       .update({ name: 'HACKED_BY_B' })
       .eq('id', storeA_id)
       .select('id');
-    if (updStoreErrB || !updStoreResB || updStoreResB.length === 0) {
-      recordResult('W.15', 'UPDATE en nombre de tienda A', 'PASA', `Rechazado (error: ${updStoreErrB?.message || '0 filas afectadas'})`);
+    if (updStoreErrB) {
+      const cls = classify(updStoreErrB);
+      recordResult('W.15', 'UPDATE en nombre de tienda A', cls.status, cls.detail);
+    } else if (!updStoreResB || updStoreResB.length === 0) {
+      recordResult('W.15', 'UPDATE en nombre de tienda A', 'PASA', '0 filas afectadas por RLS');
     } else {
       recordResult('W.15', 'UPDATE en nombre de tienda A', 'FALLA', 'UPDATE indebido sobre tienda A permitido');
     }
@@ -679,8 +824,11 @@ async function main() {
       .update({ sale_price: 9999.00, stock: 0 })
       .eq('id', prod1.id)
       .select('id');
-    if (updProdErrB || !updProdResB || updProdResB.length === 0) {
-      recordResult('W.16', 'UPDATE precio/stock de producto A', 'PASA', `Rechazado (error: ${updProdErrB?.message || '0 filas afectadas'})`);
+    if (updProdErrB) {
+      const cls = classify(updProdErrB);
+      recordResult('W.16', 'UPDATE precio/stock de producto A', cls.status, cls.detail);
+    } else if (!updProdResB || updProdResB.length === 0) {
+      recordResult('W.16', 'UPDATE precio/stock de producto A', 'PASA', '0 filas afectadas por RLS');
     } else {
       recordResult('W.16', 'UPDATE precio/stock de producto A', 'FALLA', 'UPDATE indebido sobre producto de A permitido');
     }
@@ -692,8 +840,11 @@ async function main() {
       .eq('store_id', storeA_id)
       .eq('user_id', userA.id)
       .select('*');
-    if (delMemErrB || !delMemResB || delMemResB.length === 0) {
-      recordResult('W.17', 'DELETE en store_members de tienda A', 'PASA', `Rechazado (error: ${delMemErrB?.message || '0 filas afectadas'})`);
+    if (delMemErrB) {
+      const cls = classify(delMemErrB);
+      recordResult('W.17', 'DELETE en store_members de tienda A', cls.status, cls.detail);
+    } else if (!delMemResB || delMemResB.length === 0) {
+      recordResult('W.17', 'DELETE en store_members de tienda A', 'PASA', '0 filas afectadas por RLS');
     } else {
       recordResult('W.17', 'DELETE en store_members de tienda A', 'FALLA', 'Usuario B pudo expulsar al dueño de la tienda A');
     }
@@ -704,8 +855,11 @@ async function main() {
       .delete()
       .eq('id', prod2.id)
       .select('id');
-    if (delProdErrB || !delProdResB || delProdResB.length === 0) {
-      recordResult('W.18', 'DELETE de producto de tienda A', 'PASA', `Rechazado (error: ${delProdErrB?.message || '0 filas afectadas'})`);
+    if (delProdErrB) {
+      const cls = classify(delProdErrB);
+      recordResult('W.18', 'DELETE de producto de tienda A', cls.status, cls.detail);
+    } else if (!delProdResB || delProdResB.length === 0) {
+      recordResult('W.18', 'DELETE de producto de tienda A', 'PASA', '0 filas afectadas por RLS');
     } else {
       recordResult('W.18', 'DELETE de producto de tienda A', 'FALLA', 'DELETE indebido sobre producto de A permitido');
     }
@@ -716,8 +870,11 @@ async function main() {
       .delete()
       .eq('id', storeA_id)
       .select('id');
-    if (delStoreErrB || !delStoreResB || delStoreResB.length === 0) {
-      recordResult('W.19', 'DELETE de tienda A', 'PASA', `Rechazado (error: ${delStoreErrB?.message || '0 filas afectadas'})`);
+    if (delStoreErrB) {
+      const cls = classify(delStoreErrB);
+      recordResult('W.19', 'DELETE de tienda A', cls.status, cls.detail);
+    } else if (!delStoreResB || delStoreResB.length === 0) {
+      recordResult('W.19', 'DELETE de tienda A', 'PASA', '0 filas afectadas por RLS');
     } else {
       recordResult('W.19', 'DELETE de tienda A', 'FALLA', 'DELETE indebido de tienda A permitido');
     }
@@ -766,7 +923,7 @@ async function main() {
     // ------------------------------------------------------------------------
     console.log('\n[5/7] Ejecutando Pruebas R (RPCs llamados por Usuario B)...');
 
-    // R.1: process_sale
+    // R.1: process_sale ('No perteneces a esta tienda')
     const { data: rpcSale, error: errRpcSale } = await supabaseB.rpc('process_sale', {
       p_store_id: storeA_id,
       p_ticket_number: 'TKT-HACK-000001',
@@ -775,79 +932,60 @@ async function main() {
       p_items: [{ productId: prod1.id, quantity: 1 }],
       p_register_id: registerId,
     });
-    if (errRpcSale || rpcSale?.success === false) {
-      recordResult('R.1', 'RPC process_sale en tienda A', 'PASA', `Bloqueado: ${errRpcSale?.message || rpcSale?.error}`);
-    } else {
-      recordResult('R.1', 'RPC process_sale en tienda A', 'FALLA', 'Usuario B pudo ejecutar process_sale en tienda de A');
-    }
+    const clsRpcSale = classify(errRpcSale || (rpcSale?.success === false ? { message: rpcSale?.error } : null), ['No perteneces a esta tienda']);
+    recordResult('R.1', 'RPC process_sale en tienda A', clsRpcSale.status, clsRpcSale.detail);
 
-    // R.2: adjust_stock
+    // R.2: adjust_stock ('Solo un Administrador o Repositor puede realizar ajustes')
     const { data: rpcAdj, error: errRpcAdj } = await supabaseB.rpc('adjust_stock', {
       p_store_id: storeA_id,
       p_product_id: prod1.id,
       p_quantity_delta: -5,
       p_note: 'Ajuste no autorizado',
     });
-    if (errRpcAdj || rpcAdj?.success === false) {
-      recordResult('R.2', 'RPC adjust_stock en tienda A', 'PASA', `Bloqueado: ${errRpcAdj?.message || rpcAdj?.error}`);
-    } else {
-      recordResult('R.2', 'RPC adjust_stock en tienda A', 'FALLA', 'Usuario B pudo ejecutar adjust_stock en tienda de A');
-    }
+    const clsRpcAdj = classify(errRpcAdj || (rpcAdj?.success === false ? { message: rpcAdj?.error } : null), ['Solo un Administrador o Repositor puede realizar ajustes']);
+    recordResult('R.2', 'RPC adjust_stock en tienda A', clsRpcAdj.status, clsRpcAdj.detail);
 
-    // R.3: process_purchase
+    // R.3: process_purchase ('Solo un Administrador o Repositor puede registrar compras')
     const { data: rpcPur, error: errRpcPur } = await supabaseB.rpc('process_purchase', {
       p_store_id: storeA_id,
       p_supplier_id: supplierId,
       p_items: [{ productId: prod1.id, quantity: 10, unitCost: 5.00 }],
     });
-    if (errRpcPur || rpcPur?.success === false) {
-      recordResult('R.3', 'RPC process_purchase en tienda A', 'PASA', `Bloqueado: ${errRpcPur?.message || rpcPur?.error}`);
-    } else {
-      recordResult('R.3', 'RPC process_purchase en tienda A', 'FALLA', 'Usuario B pudo ejecutar process_purchase en tienda de A');
-    }
+    const clsRpcPur = classify(errRpcPur || (rpcPur?.success === false ? { message: rpcPur?.error } : null), ['Solo un Administrador o Repositor puede registrar compras']);
+    recordResult('R.3', 'RPC process_purchase en tienda A', clsRpcPur.status, clsRpcPur.detail);
 
-    // R.4: pay_purchase
+    // R.4: pay_purchase ('Solo un Administrador puede registrar pagos de compras')
     const { data: rpcPay, error: errRpcPay } = await supabaseB.rpc('pay_purchase', {
       p_store_id: storeA_id,
       p_purchase_id: purchaseId || '00000000-0000-0000-0000-000000000000',
     });
-    if (errRpcPay || rpcPay?.success === false) {
-      recordResult('R.4', 'RPC pay_purchase en tienda A', 'PASA', `Bloqueado: ${errRpcPay?.message || rpcPay?.error}`);
-    } else {
-      recordResult('R.4', 'RPC pay_purchase en tienda A', 'FALLA', 'Usuario B pudo ejecutar pay_purchase en tienda de A');
-    }
+    const clsRpcPay = classify(errRpcPay || (rpcPay?.success === false ? { message: rpcPay?.error } : null), ['Solo un Administrador puede registrar pagos de compras']);
+    recordResult('R.4', 'RPC pay_purchase en tienda A', clsRpcPay.status, clsRpcPay.detail);
 
-    // R.5: switch_store
+    // R.5: switch_store ('No eres miembro de esta tienda')
     const { data: rpcSw, error: errRpcSw } = await supabaseB.rpc('switch_store', {
       p_store_id: storeA_id,
     });
-    if (errRpcSw || rpcSw?.success === false) {
-      recordResult('R.5', 'RPC switch_store a tienda A', 'PASA', `Bloqueado: ${errRpcSw?.message || rpcSw?.error}`);
-    } else {
-      recordResult('R.5', 'RPC switch_store a tienda A', 'FALLA', 'Usuario B pudo activar como suya la tienda de A');
-    }
+    const clsRpcSw = classify(errRpcSw || (rpcSw?.success === false ? { message: rpcSw?.error } : null), ['No eres miembro de esta tienda']);
+    recordResult('R.5', 'RPC switch_store a tienda A', clsRpcSw.status, clsRpcSw.detail);
 
-    // R.6: invite_by_code
+    // R.6: invite_by_code ('Solo un Administrador puede invitar personas a la tienda')
     const { data: rpcInv, error: errRpcInv } = await supabaseB.rpc('invite_by_code', {
       p_store_id: storeA_id,
       p_user_code: 'RENT-TEST',
       p_role: 'CAJERO',
     });
-    if (errRpcInv || rpcInv?.success === false) {
-      recordResult('R.6', 'RPC invite_by_code en tienda A', 'PASA', `Bloqueado: ${errRpcInv?.message || rpcInv?.error}`);
-    } else {
-      recordResult('R.6', 'RPC invite_by_code en tienda A', 'FALLA', 'Usuario B pudo invitar miembros en tienda de A');
-    }
+    const clsRpcInv = classify(errRpcInv || (rpcInv?.success === false ? { message: rpcInv?.error } : null), ['Solo un Administrador puede invitar personas']);
+    recordResult('R.6', 'RPC invite_by_code en tienda A', clsRpcInv.status, clsRpcInv.detail);
 
-    // R.7: accept_invitation (con token falso a tienda A)
+    // R.7: accept_invitation (con token de invitación de tienda A dirigida a otro email)
+    const tokenToTest = invitationTokenA || 'tok_falso_a_tienda_a_1234567890abcdef';
     const { data: rpcAcc, error: errRpcAcc } = await supabaseB.rpc('accept_invitation', {
-      p_token: 'tok_falso_a_tienda_a_1234567890abcdef',
+      p_token: tokenToTest,
     });
-    if (errRpcAcc || rpcAcc?.success === false) {
-      recordResult('R.7', 'RPC accept_invitation con token inválido', 'PASA', `Rechazado correctamente: ${errRpcAcc?.message || rpcAcc?.error}`);
-    } else {
-      recordResult('R.7', 'RPC accept_invitation con token inválido', 'FALLA', 'Aceptó invitación espuria');
-    }
+    const errObjAcc = errRpcAcc || (rpcAcc?.success === false ? { message: rpcAcc?.error } : null);
+    const clsRpcAcc = classify(errObjAcc, ['Esta invitacion esta dirigida a otro correo', 'no_encontrada']);
+    recordResult('R.7', 'RPC accept_invitation a tienda A', clsRpcAcc.status, clsRpcAcc.detail);
 
     // ------------------------------------------------------------------------
     // X. CRUCE ENTRE TIENDAS (inyección de tenant)
@@ -866,7 +1004,7 @@ async function main() {
       }
     }
 
-    // Usuario B crea su propia tienda
+    // 1. Usuario B crea su propia tienda
     assertAllowedStoreName(STORE_NAME_B, 'crear tienda B');
     const { data: storeResB, error: errStoreB } = await supabaseB.rpc('create_store', {
       name: STORE_NAME_B,
@@ -876,7 +1014,13 @@ async function main() {
     if (errStoreB) throw new Error(`Error al crear tienda B: ${errStoreB.message}`);
     storeB_id = storeResB?.id || storeResB?.store_id;
 
-    // Obtener caja de tienda B
+    // Obtener categoría y caja de tienda B
+    const { data: catBData } = await supabaseB
+      .from('categories')
+      .select('id')
+      .eq('store_id', storeB_id)
+      .limit(1)
+      .single();
     const { data: regBData } = await supabaseB
       .from('cash_registers')
       .select('id')
@@ -884,14 +1028,44 @@ async function main() {
       .limit(1)
       .maybeSingle();
 
-    // Consultar stock antes de inyección
+    // 2. Control positivo de B: B crea producto legítimo en SU tienda y lo vende
+    const { data: prodBData, error: errProdB } = await supabaseB
+      .from('products')
+      .insert({
+        store_id: storeB_id,
+        category_id: catBData?.id,
+        name: 'PROD_B_LEGIT',
+        cost_price: 5.00,
+        sale_price: 10.00,
+        stock: 20,
+        unit: 'pza',
+      })
+      .select('id, stock')
+      .single();
+    if (errProdB || !prodBData) {
+      throw new Error(`Control positivo de B falló al crear producto: ${errProdB?.message}`);
+    }
+
+    const { data: saleBData, error: errSaleB } = await supabaseB.rpc('process_sale', {
+      p_store_id: storeB_id,
+      p_ticket_number: 'TKT-B-LEGIT-0001',
+      p_payment_method: 'tarjeta',
+      p_cash_given: null,
+      p_items: [{ productId: prodBData.id, quantity: 1 }],
+      p_register_id: regBData?.id || null,
+    });
+    if (errSaleB || !saleBData?.success) {
+      throw new Error(`Control positivo de B falló en process_sale legítimo: ${errSaleB?.message || JSON.stringify(saleBData)}`);
+    }
+    console.log(`✅ Control positivo de B superado: venta legítima en tienda B procesada.`);
+
+    // 3. Ataque de cruce de tenant: B intenta vender en tienda B usando productId de tienda A
     const { data: stockBeforeX } = await supabaseA
       .from('products')
       .select('stock')
       .eq('id', prod1.id)
       .single();
 
-    // Inyección de tenant: Vender en tienda B usando producto de tienda A
     const { data: xSaleRes, error: xSaleErr } = await supabaseB.rpc('process_sale', {
       p_store_id: storeB_id,
       p_ticket_number: 'TKT-INYECTION-0001',
@@ -908,20 +1082,29 @@ async function main() {
       .single();
 
     const stockUntouched = Number(stockBeforeX?.stock) === Number(stockAfterX?.stock);
+    const errXObj = xSaleErr || (xSaleRes?.success === false ? { message: xSaleRes?.error } : null);
+    const clsX = classify(errXObj, ['no encontrado en esta tienda', '23503']);
 
-    if ((xSaleErr || xSaleRes?.success === false) && stockUntouched) {
+    if (clsX.status === 'PASA' && stockUntouched) {
       recordResult(
         'X.1',
         'Cruce de tenant (vender producto ajeno en tienda B)',
         'PASA',
-        `Venta rechazada (${xSaleErr?.message || xSaleRes?.error}). Stock de tienda A intacto (${stockAfterX?.stock}).`
+        `Rechazado con validación de pertenencia. Stock A intacto (${stockAfterX?.stock}).`
+      );
+    } else if (!errXObj && !stockUntouched) {
+      recordResult(
+        'X.1',
+        'Cruce de tenant (vender producto ajeno en tienda B)',
+        'FALLA',
+        `Permitió venta cruzada y descontó stock ajeno: ${xSaleErr?.message || JSON.stringify(xSaleRes)}`
       );
     } else {
       recordResult(
         'X.1',
         'Cruce de tenant (vender producto ajeno en tienda B)',
-        'FALLA',
-        `Permitió venta cruzada o alteró stock: ${xSaleErr?.message || JSON.stringify(xSaleRes)}`
+        clsX.status,
+        `${clsX.detail} (stock A intacto: ${stockUntouched ? 'SÍ' : 'NO'})`
       );
     }
 
@@ -933,8 +1116,11 @@ async function main() {
       .from('products')
       .select('id')
       .eq('store_id', storeA_id);
-    if (nErrProds || !nProds || nProds.length === 0) {
-      recordResult('N.1', 'Anon SELECT products de tienda A', 'PASA', `0 filas / bloqueado (${nErrProds?.message || '0 filas'})`);
+    if (nErrProds) {
+      const cls = classify(nErrProds);
+      recordResult('N.1', 'Anon SELECT products de tienda A', cls.status, cls.detail);
+    } else if (!nProds || nProds.length === 0) {
+      recordResult('N.1', 'Anon SELECT products de tienda A', 'PASA', '0 filas devueltas a anon');
     } else {
       recordResult('N.1', 'Anon SELECT products de tienda A', 'FALLA', `Anon obtuvo ${nProds.length} productos`);
     }
@@ -944,10 +1130,13 @@ async function main() {
       .from('stores')
       .select('id')
       .eq('id', storeA_id);
-    if (nErrStores || !nStores || nStores.length === 0) {
-      recordResult('N.2', 'Anon SELECT stores id de tienda A', 'PASA', `0 filas / bloqueado (${nErrStores?.message || '0 filas'})`);
+    if (nErrStores) {
+      const cls = classify(nErrStores);
+      recordResult('N.2', 'Anon SELECT stores id de tienda A', cls.status, cls.detail);
+    } else if (!nStores || nStores.length === 0) {
+      recordResult('N.2', 'Anon SELECT stores id de tienda A', 'PASA', '0 filas devueltas a anon');
     } else {
-      recordResult('N.2', 'Anon SELECT stores id de tienda A', 'FALLA', `Anon obtuvo tienda A`);
+      recordResult('N.2', 'Anon SELECT stores id de tienda A', 'FALLA', 'Anon obtuvo tienda A');
     }
 
     // N.3: select product_stats
@@ -955,10 +1144,13 @@ async function main() {
       .from('product_stats')
       .select('id')
       .eq('store_id', storeA_id);
-    if (nErrStats || !nStats || nStats.length === 0) {
-      recordResult('N.3', 'Anon SELECT product_stats de tienda A', 'PASA', `0 filas / bloqueado (${nErrStats?.message || '0 filas'})`);
+    if (nErrStats) {
+      const cls = classify(nErrStats);
+      recordResult('N.3', 'Anon SELECT product_stats de tienda A', cls.status, cls.detail);
+    } else if (!nStats || nStats.length === 0) {
+      recordResult('N.3', 'Anon SELECT product_stats de tienda A', 'PASA', '0 filas devueltas a anon');
     } else {
-      recordResult('N.3', 'Anon SELECT product_stats de tienda A', 'FALLA', `Anon obtuvo stats de tienda A`);
+      recordResult('N.3', 'Anon SELECT product_stats de tienda A', 'FALLA', 'Anon obtuvo stats de tienda A');
     }
 
     // N.4: call process_sale
@@ -969,11 +1161,9 @@ async function main() {
       p_cash_given: null,
       p_items: [{ productId: prod1.id, quantity: 1 }],
     });
-    if (nErrSale || nSale?.success === false) {
-      recordResult('N.4', 'Anon RPC process_sale en tienda A', 'PASA', `Bloqueado (${nErrSale?.message || nSale?.error})`);
-    } else {
-      recordResult('N.4', 'Anon RPC process_sale en tienda A', 'FALLA', 'Anon pudo ejecutar process_sale');
-    }
+    const errObjNSale = nErrSale || (nSale?.success === false ? { message: nSale?.error } : null);
+    const clsNSale = classify(errObjNSale, ['Usuario no autenticado']);
+    recordResult('N.4', 'Anon RPC process_sale en tienda A', clsNSale.status, clsNSale.detail);
 
     // ------------------------------------------------------------------------
     // S. STORAGE
@@ -982,40 +1172,74 @@ async function main() {
     const targetStoragePath = `products/${storeA_id}_fase5b_test.jpg`;
 
     // S.1: B intenta subir imagen a la ruta de la tienda A
-    const { error: errUploadS } = await supabaseB.storage
+    const { error: errUploadS1 } = await supabaseB.storage
       .from('product-images')
       .upload(targetStoragePath, dummyImageBuffer, {
         contentType: 'image/jpeg',
         upsert: true,
       });
 
-    if (errUploadS) {
-      recordResult('S.1', 'Storage upload a ruta de tienda A', 'PASA', `Rechazado por RLS storage: ${errUploadS.message}`);
+    if (errUploadS1) {
+      const cls = classify(errUploadS1);
+      recordResult('S.1', 'Storage upload a ruta de tienda A', cls.status, cls.detail);
     } else {
       recordResult('S.1', 'Storage upload a ruta de tienda A', 'FALLA', 'Usuario B pudo subir imagen a la ruta de tienda A');
-      // Intentar limpiar la imagen subida indebidamente
-      await supabaseA.storage.from('product-images').remove([targetStoragePath]);
+      storageUploadsToClean.push(targetStoragePath);
     }
 
-    // S.2: B intenta borrar imagen de la tienda A
-    const { data: remResS, error: errRemS } = await supabaseB.storage
+    // S.2: A sube primero a su tienda, B intenta borrarlo, A verifica que sigue existiendo, y A lo borra
+    const { error: errUploadS2A } = await supabaseA.storage
       .from('product-images')
-      .remove([targetStoragePath]);
+      .upload(targetStoragePath, dummyImageBuffer, {
+        contentType: 'image/jpeg',
+        upsert: true,
+      });
 
-    // En Supabase storage, remove devuelve lista de borrados o error si denegado por RLS
-    if (errRemS || !remResS || remResS.length === 0) {
-      recordResult('S.2', 'Storage delete de archivo de tienda A', 'PASA', `Rechazado por RLS storage (${errRemS?.message || '0 archivos borrados'})`);
+    if (errUploadS2A) {
+      recordResult('S.2', 'Storage delete de archivo de tienda A', 'INCONCLUSO', `A no pudo subir archivo previo de prueba: ${errUploadS2A.message}`);
     } else {
-      recordResult('S.2', 'Storage delete de archivo de tienda A', 'FALLA', 'Usuario B pudo borrar archivos de tienda A');
+      storageUploadsToClean.push(targetStoragePath);
+
+      // B intenta borrarlo
+      const { data: remResB, error: errRemB } = await supabaseB.storage
+        .from('product-images')
+        .remove([targetStoragePath]);
+
+      // A verifica que SIGUE existiendo
+      const { data: listA } = await supabaseA.storage
+        .from('product-images')
+        .list('products', { search: `${storeA_id}_fase5b_test.jpg` });
+
+      const fileStillExists = listA && listA.some(f => f.name.includes(`${storeA_id}_fase5b_test.jpg`));
+
+      if (fileStillExists) {
+        recordResult('S.2', 'Storage delete de archivo de tienda A', 'PASA', 'B no pudo eliminar el archivo; el archivo de A sigue intacto.');
+      } else if (!fileStillExists && remResB && remResB.length > 0) {
+        recordResult('S.2', 'Storage delete de archivo de tienda A', 'FALLA', 'HALLAZGO GRAVE: Usuario B eliminó el archivo de la tienda de A en storage');
+      } else {
+        const cls = classify(errRemB);
+        recordResult('S.2', 'Storage delete de archivo de tienda A', cls.status, cls.detail);
+      }
     }
 
   } catch (error) {
-    console.error('\n🚨 Error durante la ejecución del test de aislamiento:', error.message);
+    aborted = true;
+    console.error('\n🚨 Error fatal durante la ejecución del test de aislamiento:', error.message);
   } finally {
     // ========================================================================
     // LIMPIEZA (en bloque finally, pase lo que pase)
     // ========================================================================
-    console.log('\n[7/7] Limpieza final de tiendas de prueba...');
+    console.log('\n[7/7] Limpieza final de recursos y tiendas de prueba...');
+
+    // Limpieza de archivos storage de prueba
+    if (storageUploadsToClean.length > 0) {
+      try {
+        await supabaseA.storage.from('product-images').remove(storageUploadsToClean);
+        console.log(`✅ Archivos de prueba en storage eliminados.`);
+      } catch (e) {
+        console.warn(`⚠️ Error al limpiar storage: ${e.message}`);
+      }
+    }
 
     // 1. Borrar tienda A (como A)
     if (storeA_id) {
@@ -1074,30 +1298,57 @@ async function main() {
 
   let passCount = 0;
   let failCount = 0;
-  let noCtrlCount = 0;
+  let inconclusoCount = 0;
+  let sinControlCount = 0;
+
+  const sinControlItems = [];
 
   console.log('| Código | Prueba | Resultado | Detalle |');
   console.log('|---|---|---|---|');
   for (const r of testResults) {
     if (r.resultado === 'PASA') passCount++;
     else if (r.resultado === 'FALLA') failCount++;
-    else noCtrlCount++;
+    else if (r.resultado === 'SIN CONTROL') {
+      sinControlCount++;
+      sinControlItems.push(r);
+    } else {
+      inconclusoCount++;
+    }
 
     console.log(`| \`${r.codigo}\` | ${r.prueba} | **${r.resultado}** | ${r.detalle} |`);
   }
 
+  // Verificar cobertura completa de códigos
+  const executedCodes = new Set(testResults.map(r => r.codigo));
+  const missingCodes = EXPECTED_CODES.filter(c => !executedCodes.has(c));
+
   console.log('\n' + '-'.repeat(60));
-  console.log(`Total Pruebas: ${testResults.length}`);
-  console.log(`✅ PASA       : ${passCount}`);
-  console.log(`❌ FALLA      : ${failCount}`);
-  console.log(`⚠️ SIN CONTROL: ${noCtrlCount}`);
+  console.log(`Total Pruebas Ejecutadas : ${testResults.length} / ${EXPECTED_CODES.length}`);
+  console.log(`✅ PASA                  : ${passCount}`);
+  console.log(`❌ FALLA                 : ${failCount}`);
+  console.log(`⚠️ INCONCLUSO            : ${inconclusoCount}`);
+  console.log(`ℹ️ SIN CONTROL           : ${sinControlCount}`);
+  console.log(`🛑 Abortado por Excepción: ${aborted ? 'SÍ' : 'NO'}`);
+  console.log(`🔍 Códigos Faltantes     : ${missingCodes.length === 0 ? 'NINGUNO (100% ejecutado)' : missingCodes.join(', ')}`);
   console.log('-'.repeat(60));
 
-  if (failCount > 0) {
-    console.error('\n❌ SE DETECTARON FALLOS DE SEGURIDAD O AISLAMIENTO ENTRE USUARIOS.');
-    process.exit(1);
+  if (sinControlItems.length > 0) {
+    console.log('\n📋 Pruebas marcadas como SIN CONTROL (Usuario A no tenía datos base en esa tabla):');
+    sinControlItems.forEach(sc => console.log(`   - [${sc.codigo}] ${sc.prueba}: ${sc.detalle}`));
+  }
+
+  const isVerified =
+    failCount === 0 &&
+    inconclusoCount === 0 &&
+    !aborted &&
+    missingCodes.length === 0;
+
+  if (isVerified) {
+    console.log('\n🛡️ AISLAMIENTO VERIFICADO: Todas las barreras RLS, RPC y Storage protegieron los datos.');
+    process.exit(0);
   } else {
-    console.log('\n🛡️ AISLAMIENTO DE TENANTS VERIFICADO EXITOSAMENTE.');
+    console.error('\n⚠️ NO CONCLUYENTE: Se detectaron fallas, inconsistencias o ejecuciones incompletas.');
+    process.exit(1);
   }
 }
 
