@@ -49,3 +49,28 @@ export async function resetPasswordUseCase(email: string) {
   return await authRepository.resetPasswordForEmail(email.trim());
 }
 
+export async function applyRecoverySessionUseCase(accessToken: string, refreshToken: string) {
+  if (!accessToken || !refreshToken) {
+    throw new Error('Tokens de recuperación no válidos');
+  }
+  const { data, error } = await authRepository.setSessionFromTokens(accessToken, refreshToken);
+  if (error) {
+    throw error;
+  }
+  if (!data?.session) {
+    throw new Error('No se pudo establecer la sesión de recuperación');
+  }
+  return data;
+}
+
+export async function updatePasswordUseCase(newPassword: string) {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error('La contraseña debe tener al menos 6 caracteres.');
+  }
+  const { data, error } = await authRepository.updatePassword(newPassword);
+  if (error) {
+    throw error;
+  }
+  return data;
+}
+

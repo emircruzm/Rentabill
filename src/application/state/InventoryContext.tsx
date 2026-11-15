@@ -36,6 +36,8 @@ import {
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
 import { perfStart, perfEnd, perfCount, perfReport } from '@shared/utils/perf';
+import { parseRecoveryHash, RecoveryLinkResult } from '@shared/index';
+import { applyRecoverySessionUseCase, updatePasswordUseCase } from '../use-cases/index';
 import { supabase } from '@data/supabase/client';
 import { formatAuthError } from '@data/supabase/errorMapper';
 import { 
@@ -69,7 +71,7 @@ export interface CalibrationEvent {
   isEmpirical: boolean;
 }
 
-export type AuthScreen = 'authenticated' | 'login' | 'register' | 'onboarding' | 'error';
+export type AuthScreen = 'authenticated' | 'login' | 'register' | 'onboarding' | 'error' | 'recovery';
 export type StoresLoadingStatus = 'loading' | 'loaded' | 'error';
 
 interface InventoryContextType {
@@ -196,6 +198,8 @@ interface InventoryContextType {
   openAddStoreOnboarding: () => void;
   cancelAddStoreOnboarding: () => void;
   // Async states
+  completeRecovery: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  cancelRecovery: () => Promise<void>;
   loading: boolean;
   error: string | null;
   refreshData: () => Promise<void>;
@@ -253,6 +257,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const isCheckingOutRef = useRef<boolean>(false);
   const sessionLoadingUserIdRef = useRef<string | null>(null);
   const categoriesCacheRef = useRef<{ storeId: string; data: Array<{ id: string; name: string }>; resolved: Record<string, string> } | null>(null);
+  const recoveryModeRef = useRef<boolean>(false);
+  const recoveryParsedRef = useRef<RecoveryLinkResult | null>(null);
+  const recoverySessionAppliedRef = useRef<boolean>(false);
+
+  if (recoveryParsedRef.current === null) {
+    if (typeof window !== 'undefined' && window.location?.hash) {
+      recoveryParsedRef.current = parseRecoveryHash(window.location.hash);
+    } else {
+      recoveryParsedRef.current = { kind: 'none' };
+    }
+  }
 
   useEffect(() => {
     activeUserRef.current = user.id || null;
@@ -1050,10 +1065,47 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     }
 
+    // Manejo de enlace de recuperación de contraseña (pre-suscripción a eventos de auth)
+    const recoveryResult = recoveryParsedRef.current;
+    if (recoveryResult && recoveryResult.kind === 'tokens') {
+      recoveryModeRef.current = true;
+      if (typeof window !== 'undefined' && window.history?.replaceState) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+      setAuthScreen('recovery');
+      authScreenRef.current = 'recovery';
+      setLoading(false);
+
+      if (!recoverySessionAppliedRef.current) {
+        recoverySessionAppliedRef.current = true;
+        applyRecoverySessionUseCase(recoveryResult.accessToken, recoveryResult.refreshToken)
+          .catch((err: any) => {
+            console.error('Error aplicando sesión de recuperación:', err);
+            recoveryModeRef.current = false;
+            showToast('No se pudo validar el enlace. Pide uno nuevo desde «¿Olvidaste tu contraseña?».', 'alert');
+            if (isMounted) {
+              setAuthScreen('login');
+              authScreenRef.current = 'login';
+            }
+          });
+      }
+    } else if (recoveryResult && recoveryResult.kind === 'error') {
+      if (typeof window !== 'undefined' && window.history?.replaceState) {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      }
+      if (!recoverySessionAppliedRef.current) {
+        recoverySessionAppliedRef.current = true;
+        showToast(recoveryResult.message, 'alert');
+      }
+      setAuthScreen('login');
+      authScreenRef.current = 'login';
+    }
+
     // Listen to Auth State Changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // ONLY reset on explicit logout event
       if (event === 'SIGNED_OUT') {
+        recoveryModeRef.current = false;
         categoriesCacheRef.current = null;
         sessionLoadingUserIdRef.current = null;
         if (isMounted) {
@@ -1078,6 +1130,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
 
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (recoveryModeRef.current) return;
+
         if (!session?.user) {
           if (isMounted) {
             setAuthScreen('login');
@@ -2800,6 +2854,37 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     showToast('Sesión cerrada', 'info', 'Vuelve pronto');
   }, [showToast, setIsTestingRole]);
 
+  const completeRecovery = useCallback(async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      setLoading(true);
+      await updatePasswordUseCase(newPassword);
+      await authRepository.signOut();
+      recoveryModeRef.current = false;
+      setAuthScreen('login');
+      authScreenRef.current = 'login';
+      showToast('Contraseña actualizada. Inicia sesión con tu nueva contraseña.', 'success');
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Error al actualizar la contraseña' };
+    } finally {
+      setLoading(false);
+    }
+  }, [showToast]);
+
+  const cancelRecovery = useCallback(async (): Promise<void> => {
+    try {
+      setLoading(true);
+      await authRepository.signOut();
+    } catch (err) {
+      console.warn('Error cerrando sesión en cancelación de recuperación:', err);
+    } finally {
+      recoveryModeRef.current = false;
+      setAuthScreen('login');
+      authScreenRef.current = 'login';
+      setLoading(false);
+    }
+  }, []);
+
   const updateProfile = useCallback(async (updates: Partial<UserProfile>) => {
     return await runWrite({
       isTestingRole: isTestingRoleRef.current,
@@ -3549,6 +3634,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         openAddStoreOnboarding,
         cancelAddStoreOnboarding,
         loading,
+        completeRecovery,
+        cancelRecovery,
         error,
         refreshData,
       }}

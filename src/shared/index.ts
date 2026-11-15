@@ -4,3 +4,4 @@ export * from './formatters/index';
 export * from './storage/storage.interface';
 export * from './utils/perf';
 export * from './utils/pagination';
+export * from './utils/recoveryLink';

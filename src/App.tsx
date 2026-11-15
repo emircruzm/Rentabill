@@ -20,7 +20,8 @@ import {
   AjustesView,
   AuthView,
   OnboardingView,
-  ConnectionErrorView
+  ConnectionErrorView,
+  ResetPasswordView
 } from '@presentation/index';
 
 const MainContent: React.FC = () => {
@@ -52,6 +53,10 @@ const AppContent: React.FC = () => {
 
   if (authScreen === 'onboarding') {
     return <OnboardingView />;
+  }
+
+  if (authScreen === 'recovery') {
+    return <ResetPasswordView />;
   }
 
   if (authScreen === 'error') {
