@@ -1,4 +1,5 @@
 export * from './BottomNavigation';
+export * from './BulkProductModal';
 export * from './CalibrationModal';
 export * from './EditProductModal';
 export * from './Header';
@@ -8,6 +9,7 @@ export * from './InviteTeamModal';
 export * from './LogoutConfirmModal';
 export * from './NotificationDropdown';
 export * from './ProfileModal';
+export * from './ProductCard';
 export * from './RoleTestBanner';
 export * from './StoreSelectorModal';
 export * from './ToastNotification';

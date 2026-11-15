@@ -28,6 +28,15 @@ export const authRepository = {
     return supabase.auth.getSession();
   },
 
+  async getLocalUserId(): Promise<string | undefined> {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      return session?.user?.id;
+    } catch {
+      return undefined;
+    }
+  },
+
   async getUser() {
     return supabase.auth.getUser();
   },

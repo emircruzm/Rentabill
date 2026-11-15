@@ -12,4 +12,5 @@ android/app/build/
 .env.*
 .env*
 !.env.example
+!.env.test.example
 supabase/.temp/

@@ -18,7 +18,8 @@ import {
   PurchaseRecord,
   TeamInvitation,
   RegisteredDirectoryUser,
-  UserStoreMembership
+  UserStoreMembership,
+  ProductUnit
 } from '@shared/types/index';
 import { ROLE_INFO } from '@shared/constants/roles';
 import { 
@@ -30,13 +31,16 @@ import {
   estimatedVelocity,
   estimatedVelocityForPurchase,
   realVelocityCurrent,
-  resolveRealVelocity
+  resolveRealVelocity,
+  friendlyBulkError
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
+import { perfStart, perfEnd, perfCount, perfReport } from '@shared/utils/perf';
 import { supabase } from '@data/supabase/client';
 import { formatAuthError } from '@data/supabase/errorMapper';
 import { 
   productsRepository,
+  BULK_CHUNK_SIZE,
   salesRepository,
   purchasesRepository,
   stockRepository,
@@ -83,6 +87,23 @@ interface InventoryContextType {
   checkout: (paymentMethod: 'efectivo' | 'qr' | 'tarjeta', cashGiven?: number) => Promise<{ success: boolean; change: number }>;
   registerSaleSingle: (productId: string) => Promise<void>;
   addProduct: (product: Omit<Product, 'id' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo' | 'storeId' | 'categoryId'> & { storeId?: string; categoryId?: string }) => Promise<boolean>;
+  addProductsBulk: (
+    inputs: Array<{
+      name: string;
+      costPrice: number;
+      salePrice: number;
+      stock: number;
+      unit?: ProductUnit;
+      category?: string;
+      categoryId?: string;
+      barcode?: string | null;
+      sku?: string | null;
+      reorderPoint?: number;
+      estimatedSpeed?: SpeedCategory | null;
+      imageUrl?: string | null;
+    }>,
+    onProgress?: (guardados: number, total: number) => void
+  ) => Promise<{ success: boolean; insertedCount: number; totalCount: number; error?: string; warning?: string }>;
   updateProduct: (productId: string, updates: Partial<Omit<Product, 'id' | 'storeId' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo'>>) => Promise<boolean>;
   deleteProduct: (productId: string) => Promise<boolean>;
   calibrationEvent: CalibrationEvent | null;
@@ -127,7 +148,7 @@ interface InventoryContextType {
   registerUser: (
     name: string, 
     email: string, 
-    password?: string, 
+    password: string, 
     role?: UserRole, 
     phone?: string
   ) => Promise<{ success: boolean; requiresEmailConfirmation?: boolean; error?: string }>;
@@ -230,6 +251,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const activeUserRef = useRef<string | null>(null);
   const authScreenRef = useRef<AuthScreen>('login');
   const isCheckingOutRef = useRef<boolean>(false);
+  const sessionLoadingUserIdRef = useRef<string | null>(null);
+  const categoriesCacheRef = useRef<{ storeId: string; data: Array<{ id: string; name: string }>; resolved: Record<string, string> } | null>(null);
 
   useEffect(() => {
     activeUserRef.current = user.id || null;
@@ -272,6 +295,21 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [onboardingMode, setOnboardingMode] = useState<'initial' | 'add_store'>('initial');
   const activeStoreRequestIdRef = useRef<string>('');
   const realtimeChannelRef = useRef<any>(null);
+  const realtimeProductsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Limpieza de suscripción y temporizador Realtime al desmontar el proveedor
+  useEffect(() => {
+    return () => {
+      if (typeof realtimeChannelRef.current === 'function') {
+        realtimeChannelRef.current();
+        realtimeChannelRef.current = null;
+      }
+      if (realtimeProductsDebounceRef.current) {
+        clearTimeout(realtimeProductsDebounceRef.current);
+        realtimeProductsDebounceRef.current = null;
+      }
+    };
+  }, []);
 
   const openAddStoreOnboarding = useCallback(() => {
     setOnboardingMode('add_store');
@@ -293,8 +331,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }, 4500);
   }, []);
 
-  // Fetch full store data from Supabase
+    // Fetch full store data from Supabase
   const loadStoreData = useCallback(async (storeId: string) => {
+    perfStart('load:total');
     const reqId = `${storeId}_${Date.now()}`;
     activeStoreRequestIdRef.current = reqId;
 
@@ -311,30 +350,196 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       setError(null);
 
-      // 1. Fetch Store and Cash Registers
-      const { data: storeData, error: storeErr } = await supabase
-        .from('stores')
-        .select('*')
-        .eq('id', storeId)
-        .single();
-      
-      if (storeErr) throw storeErr;
+      // Preparación de promesas en paralelo (Ola 1: 10 consultas independientes)
+      const fetchStore = async () => {
+        perfStart('load:tienda');
+        try {
+          const { data: storeData, error: storeErr } = await supabase
+            .from('stores')
+            .select('*')
+            .eq('id', storeId)
+            .single();
+          if (storeErr) throw storeErr;
+          return storeData;
+        } finally {
+          perfEnd('load:tienda');
+        }
+      };
+
+      const fetchRegisters = async () => {
+        perfStart('load:cajas');
+        try {
+          const { data: regData } = await supabase
+            .from('cash_registers')
+            .select('name')
+            .eq('store_id', storeId)
+            .order('name');
+          if (regData && regData.length > 0) {
+            return regData.map(r => r.name);
+          }
+          return ['Caja 01 - Mostrador'];
+        } catch (err) {
+          console.warn('Fallback a caja por defecto:', err);
+          return ['Caja 01 - Mostrador'];
+        } finally {
+          perfEnd('load:cajas');
+        }
+      };
+
+      const fetchProducts = async () => {
+        perfStart('load:productos');
+        try {
+          return await productsRepository.getByStoreId(storeId);
+        } finally {
+          perfEnd('load:productos');
+        }
+      };
+
+      const fetchSuppliers = async () => {
+        perfStart('load:proveedores');
+        try {
+          return await suppliersRepository.getByStoreId(storeId);
+        } finally {
+          perfEnd('load:proveedores');
+        }
+      };
+
+      const fetchSales = async () => {
+        perfStart('load:ventas');
+        try {
+          return await salesRepository.getByStoreId(storeId, 100);
+        } finally {
+          perfEnd('load:ventas');
+        }
+      };
+
+      const fetchMovements = async () => {
+        perfStart('load:movimientos');
+        try {
+          return await stockRepository.getMovements(storeId, 100);
+        } finally {
+          perfEnd('load:movimientos');
+        }
+      };
+
+      const fetchPurchases = async () => {
+        perfStart('load:compras');
+        try {
+          return await purchasesRepository.getByStoreId(storeId);
+        } catch (err) {
+          console.warn('Error al cargar compras:', err);
+          return [] as PurchaseRecord[];
+        } finally {
+          perfEnd('load:compras');
+        }
+      };
+
+      const fetchMembers = async () => {
+        perfStart('load:miembros');
+        try {
+          return await teamRepository.getMembersByStoreId(storeId);
+        } catch (err) {
+          console.warn('Error al cargar miembros del equipo:', err);
+          return [] as TeamMember[];
+        } finally {
+          perfEnd('load:miembros');
+        }
+      };
+
+      const fetchInvitations = async () => {
+        perfStart('load:invitaciones');
+        try {
+          return await teamRepository.getInvitationsByStoreId(storeId);
+        } catch (err) {
+          console.warn('Error al cargar invitaciones:', err);
+          return [] as TeamInvitation[];
+        } finally {
+          perfEnd('load:invitaciones');
+        }
+      };
+
+      const fetchSettings = async () => {
+        perfStart('load:ajustes');
+        try {
+          let currentUserId: string | undefined;
+          try {
+            currentUserId = await authRepository.getLocalUserId();
+          } catch {}
+          return await settingsRepository.getSettings(storeId, currentUserId);
+        } finally {
+          perfEnd('load:ajustes');
+        }
+      };
+
+      const fetchCategories = async () => {
+        perfStart('load:categorias');
+        try {
+          const { data: catData, error: catErr } = await supabase
+            .from('categories')
+            .select('id, name')
+            .eq('store_id', storeId);
+          if (catErr) {
+            console.warn('Error al cargar categorías:', catErr);
+            return [] as { id: string; name: string }[];
+          }
+          return (catData || []) as { id: string; name: string }[];
+        } finally {
+          perfEnd('load:categorias');
+        }
+      };
+
+      const [
+        storeData,
+        _loadedRegisters,
+        loadedProducts,
+        loadedSuppliers,
+        loadedSales,
+        loadedMovements,
+        loadedPurchases,
+        loadedMembers,
+        loadedInvitations,
+        settingsData,
+        loadedCategories,
+      ] = await Promise.all([
+        fetchStore(),
+        fetchRegisters(),
+        fetchProducts(),
+        fetchSuppliers(),
+        fetchSales(),
+        fetchMovements(),
+        fetchPurchases(),
+        fetchMembers(),
+        fetchInvitations(),
+        fetchSettings(),
+        fetchCategories(),
+      ]);
+
       if (activeStoreRequestIdRef.current !== reqId) return;
 
-      let loadedRegisters = ['Caja 01 - Mostrador'];
+      // Poblar caché de categorías al abrir la tienda
+      const resolvedCats: Record<string, string> = {};
+      for (const cat of loadedCategories) {
+        resolvedCats[cat.name.trim().toLowerCase()] = cat.id;
+      }
+      categoriesCacheRef.current = {
+        storeId,
+        data: loadedCategories,
+        resolved: resolvedCats,
+      };
+
+      // Ola 2: Simulaciones (requiere mapa de proveedores)
+      const suppliersMap = Object.fromEntries(loadedSuppliers.map(s => [s.id, s.name]));
+      perfStart('load:simulaciones');
+      let loadedSims: PastSimulation[] = [];
       try {
-        const { data: regData } = await supabase
-          .from('cash_registers')
-          .select('name')
-          .eq('store_id', storeId)
-          .order('name');
-        if (regData && regData.length > 0) {
-          loadedRegisters = regData.map(r => r.name);
-        }
-      } catch (err) {
-        console.warn('Fallback a caja por defecto:', err);
+        loadedSims = await simulationsRepository.getByStoreId(storeId, suppliersMap);
+      } finally {
+        perfEnd('load:simulaciones');
       }
 
+      if (activeStoreRequestIdRef.current !== reqId) return;
+
+      // Aplicar estados de manera conjunta
       if (storeData) {
         setStoreInfo({
           id: storeData.id,
@@ -347,59 +552,16 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }
 
-      // 2. Fetch Products via productsRepository
-      const loadedProducts = await productsRepository.getByStoreId(storeId);
       setProducts(loadedProducts);
-
-      // 3. Fetch Suppliers via suppliersRepository
-      const loadedSuppliers = await suppliersRepository.getByStoreId(storeId);
       setSuppliers(loadedSuppliers);
-
-      // 4. Fetch Sales via salesRepository
-      const loadedSales = await salesRepository.getByStoreId(storeId, 100);
       setSales(loadedSales);
-
-      // 5. Fetch Inventory Movements via stockRepository
-      const loadedMovements = await stockRepository.getMovements(storeId, 100);
       setInventoryMovements(loadedMovements);
-
-      // 6. Fetch Simulations via simulationsRepository
-      const suppliersMap = Object.fromEntries(loadedSuppliers.map(s => [s.id, s.name]));
-      const loadedSims = await simulationsRepository.getByStoreId(storeId, suppliersMap);
       setPastSimulations(loadedSims);
+      setPurchases(loadedPurchases);
+      setTeamMembers(loadedMembers);
+      setInvitations(loadedInvitations);
 
-      // 6b. Fetch Purchases via purchasesRepository
-      try {
-        const loadedPurchases = await purchasesRepository.getByStoreId(storeId);
-        setPurchases(loadedPurchases);
-      } catch (err) {
-        console.warn('Error al cargar compras:', err);
-      }
-
-      // 7. Fetch Team Members via teamRepository
-      try {
-        const loadedMembers = await teamRepository.getMembersByStoreId(storeId);
-        setTeamMembers(loadedMembers);
-      } catch (err) {
-        console.warn('Error al cargar miembros del equipo:', err);
-      }
-
-      // 8. Fetch Invitations via teamRepository
-      try {
-        const loadedInvitations = await teamRepository.getInvitationsByStoreId(storeId);
-        setInvitations(loadedInvitations);
-      } catch (err) {
-        console.warn('Error al cargar invitaciones:', err);
-      }
-
-      // 9. Fetch Store Settings and User Preferences via settingsRepository
-      let currentUserId: string | undefined;
-      try {
-        const { data: { user: currentUser } } = await authRepository.getUser();
-        currentUserId = currentUser?.id;
-      } catch {}
-
-      const { storeSettings: settData, userPreferences: prefData } = await settingsRepository.getSettings(storeId, currentUserId);
+      const { storeSettings: settData, userPreferences: prefData } = settingsData;
       const userPref = {
         darkMode: Boolean(prefData?.dark_mode),
         language: prefData?.language || 'Español (Sencillo)',
@@ -424,16 +586,34 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
 
         const unsubscribe = subscribeToStoreRealtime(storeId, {
-          onProductsChange: async () => {
-            if (activeStoreRequestIdRef.current === reqId) {
-              const freshProducts = await productsRepository.getByStoreId(storeId);
-              if (activeStoreRequestIdRef.current === reqId) {
-                setProducts(freshProducts);
-              }
+          onProductsChange: () => {
+            perfCount('realtime:eventos_recibidos');
+            perfCount('perf:realtime-refetch');
+            if (realtimeProductsDebounceRef.current) {
+              clearTimeout(realtimeProductsDebounceRef.current);
             }
+            realtimeProductsDebounceRef.current = setTimeout(async () => {
+              perfCount('realtime:recargas_ejecutadas');
+              if (activeStoreRequestIdRef.current === reqId) {
+                const freshProducts = await productsRepository.getByStoreId(storeId);
+                if (activeStoreRequestIdRef.current === reqId) {
+                  setProducts(freshProducts);
+                  if (import.meta.env.DEV) {
+                    perfReport();
+                  }
+                }
+              }
+            }, 500);
           },
         });
-        realtimeChannelRef.current = unsubscribe;
+
+        realtimeChannelRef.current = () => {
+          if (realtimeProductsDebounceRef.current) {
+            clearTimeout(realtimeProductsDebounceRef.current);
+            realtimeProductsDebounceRef.current = null;
+          }
+          unsubscribe();
+        };
       } catch (rtErr) {
         console.warn('Realtime subscription error:', rtErr);
       }
@@ -442,6 +622,11 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       console.error('Error cargando datos de la tienda:', err);
       setError(err.message || 'Error de conexión con la base de datos');
       showToast('Error de conexión con la base de datos', 'alert', err.message);
+    } finally {
+      perfEnd('load:total');
+      if (import.meta.env.DEV) {
+        perfReport();
+      }
     }
   }, [showToast]);
 
@@ -494,6 +679,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setLoading(true);
 
       // 1. Limpiar completamente los estados de la tienda previa
+      categoriesCacheRef.current = null;
       setIsTestingRole(false);
       setProducts([]);
       setCart([]);
@@ -643,6 +829,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     let isMounted = true;
 
     async function handleSessionUser(sessionUser: any, isInitialLogin = false) {
+      sessionLoadingUserIdRef.current = sessionUser.id;
       try {
         if (isInitialLogin) {
           setLoading(true);
@@ -858,6 +1045,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           authScreenRef.current = 'error';
         }
       } finally {
+        sessionLoadingUserIdRef.current = null;
         if (isMounted) setLoading(false);
       }
     }
@@ -866,6 +1054,8 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // ONLY reset on explicit logout event
       if (event === 'SIGNED_OUT') {
+        categoriesCacheRef.current = null;
+        sessionLoadingUserIdRef.current = null;
         if (isMounted) {
           setIsTestingRole(false);
           activeUserRef.current = null;
@@ -898,9 +1088,14 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         }
 
         // Ignorar SIGNED_IN repetidos del mismo user id si ya está autenticado en la app
-        if (activeUserRef.current === session.user.id && authScreenRef.current === 'authenticated') {
+        if (
+          sessionLoadingUserIdRef.current === session.user.id ||
+          (activeUserRef.current === session.user.id && authScreenRef.current === 'authenticated')
+        ) {
           return;
         }
+
+        sessionLoadingUserIdRef.current = session.user.id;
 
         // Diferir con setTimeout(..., 0) para quitar el await a Supabase dentro del callback
         setTimeout(() => {
@@ -912,6 +1107,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     return () => {
       isMounted = false;
+      sessionLoadingUserIdRef.current = null;
       subscription.unsubscribe();
     };
   }, [loadStoreData]);
@@ -1288,11 +1484,13 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Add Product to Supabase
   const addProduct = useCallback(async (productData: Omit<Product, 'id' | 'unitsSold' | 'salesCount' | 'status' | 'createdDaysAgo' | 'storeId' | 'categoryId'> & { storeId?: string; categoryId?: string }): Promise<boolean> => {
+    perfStart('add:total');
     if (!user.storeId) {
       showToast('No se encontró una tienda asignada', 'alert');
       return false;
     }
 
+    const storeId = user.storeId;
     const initialStock = Number(productData.stock) || 0;
 
     return await runWrite({
@@ -1309,7 +1507,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           category: productData.category || 'General',
           categoryId: productData.categoryId || 'cat-sim',
           unit: productData.unit || 'pza',
-          estimatedSpeed: productData.estimatedSpeed || 'LENTO',
+          estimatedSpeed: productData.estimatedSpeed || 'NORMAL',
           status: 'ESTIMADO',
           imageUrl: productData.imageUrl,
           barcode: productData.barcode,
@@ -1331,13 +1529,59 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           // Buscar category_id de la tienda
           let targetCategoryId = productData.categoryId;
           if (!targetCategoryId) {
-            const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
-            const cat = catData?.find((c: any) => c.name.toLowerCase() === (productData.category || 'General').toLowerCase());
-            if (cat) targetCategoryId = cat.id;
-            else if (catData && catData.length > 0) targetCategoryId = catData[0].id;
+            perfStart('add:categorias');
+            const targetName = (productData.category || 'General').toLowerCase();
+
+            const cache = (categoriesCacheRef.current && categoriesCacheRef.current.storeId === user.storeId)
+              ? categoriesCacheRef.current
+              : null;
+
+            if (cache && cache.resolved[targetName]) {
+              perfCount('cache:categorias-hit');
+              targetCategoryId = cache.resolved[targetName];
+            } else {
+              perfCount('cache:categorias-miss');
+
+              let catData = cache?.data || null;
+              let cat = catData?.find(c => c.name.toLowerCase() === targetName);
+
+              // Regla (a): si no hay caché o la categoría buscada NO está en caché, consultar al servidor
+              if (!cat) {
+                const { data: serverCats } = await supabase
+                  .from('categories')
+                  .select('id, name')
+                  .eq('store_id', user.storeId);
+
+                if (serverCats && serverCats.length > 0) {
+                  catData = serverCats;
+                  cat = catData.find(c => c.name.toLowerCase() === targetName);
+                }
+              }
+
+              if (cat) {
+                targetCategoryId = cat.id;
+              } else if (catData && catData.length > 0) {
+                targetCategoryId = catData[0].id;
+              }
+
+              if (user.storeId && targetCategoryId) {
+                const existingResolved = cache?.resolved || {};
+                categoriesCacheRef.current = {
+                  storeId: user.storeId,
+                  data: catData || [],
+                  resolved: {
+                    ...existingResolved,
+                    ...(cat ? { [cat.name.toLowerCase()]: cat.id } : {}),
+                    [targetName]: targetCategoryId,
+                  },
+                };
+              }
+            }
+            perfEnd('add:categorias');
           }
 
-          const { error: insertErr } = await supabase
+          perfStart('add:insert');
+          const { data: insertedProduct, error: insertErr } = await supabase
             .from('products')
             .insert({
               store_id: user.storeId,
@@ -1350,21 +1594,54 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
               sale_price: productData.salePrice,
               stock: initialStock,
               reorder_point: productData.reorderPoint || 0,
-              estimated_speed: productData.estimatedSpeed || null,
+              estimated_speed: productData.estimatedSpeed || 'NORMAL',
               units_sold: 0,
               sales_count: 0,
               image_url: productData.imageUrl || null,
-            });
+            })
+            .select('id')
+            .single();
+          perfEnd('add:insert');
 
           if (insertErr) throw insertErr;
 
-          if (user.storeId) {
-            await loadStoreData(user.storeId);
+          perfStart('add:fetch');
+          try {
+            const newProductId = insertedProduct?.id;
+            if (!newProductId) throw new Error('No se obtuvo el ID del producto registrado');
+
+            const [newProduct, freshMovements] = await Promise.all([
+              productsRepository.getById(storeId, newProductId),
+              initialStock > 0 ? stockRepository.getMovements(storeId, 100) : Promise.resolve(null),
+            ]);
+
+            if (!newProduct) throw new Error('No se encontró el producto en product_stats');
+
+            setProducts(prev => {
+              if (prev.some(p => p.id === newProduct.id)) {
+                return prev.map(p => p.id === newProduct.id ? newProduct : p);
+              }
+              return [newProduct, ...prev];
+            });
+
+            if (freshMovements) {
+              setInventoryMovements(freshMovements);
+            }
+          } catch (fetchErr) {
+            console.warn('Error en add:fetch puntual, ejecutando respaldo loadStoreData:', fetchErr);
+            if (user.storeId) {
+              await loadStoreData(user.storeId);
+            }
+          } finally {
+            perfEnd('add:fetch');
           }
           showToast("Producto guardado con ganancia estimada", 'success', "Se confirmará automáticamente al acumular 5 ventas");
+          perfEnd('add:total');
+          perfReport();
           setActiveTab('inventario');
           return true;
         } catch (err: any) {
+          perfEnd('add:total');
           console.error('Error guardando producto:', err);
           showToast('Error al registrar producto', 'alert', err.message || 'Verifica los datos e intenta nuevamente.');
           return false;
@@ -1374,6 +1651,269 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
     });
   }, [user.storeId, user.name, loadStoreData, showToast, setActiveTab]);
+
+  // Carga rápida de productos en lote (Feature Carga Rápida)
+  const addProductsBulk = useCallback(async (
+    inputs: Array<{
+      name: string;
+      costPrice: number;
+      salePrice: number;
+      stock: number;
+      unit?: ProductUnit;
+      category?: string;
+      categoryId?: string;
+      barcode?: string | null;
+      sku?: string | null;
+      reorderPoint?: number;
+      estimatedSpeed?: SpeedCategory | null;
+      imageUrl?: string | null;
+    }>,
+    onProgress?: (guardados: number, total: number) => void
+  ): Promise<{ success: boolean; insertedCount: number; totalCount: number; error?: string; warning?: string }> => {
+    if (!user.storeId) {
+      showToast('No se encontró una tienda asignada', 'alert');
+      return { success: false, insertedCount: 0, totalCount: inputs.length, error: 'Sin tienda activa' };
+    }
+
+    if (user.role !== 'ADMIN' && user.role !== 'REPOSITOR') {
+      showToast('Permisos insuficientes', 'alert', 'Solo Administradores y Repositores pueden registrar productos.');
+      return { success: false, insertedCount: 0, totalCount: inputs.length, error: 'Permisos insuficientes' };
+    }
+
+    if (!inputs || inputs.length === 0) {
+      return { success: true, insertedCount: 0, totalCount: 0 };
+    }
+
+    const storeId = user.storeId;
+    perfStart('bulk:total');
+
+    return await runWrite<{ success: boolean; insertedCount: number; totalCount: number; error?: string; warning?: string }>({
+      isTestingRole: isTestingRoleRef.current,
+      actionDescription: `Carga rápida de productos (${inputs.length})`,
+      notifyTestMode: (msg, sub) => showToast(msg, 'info', sub),
+      onSimulate: async () => {
+        const simulated: Product[] = inputs.map((inp, idx) => ({
+          id: `sim-bulk-${Date.now()}-${idx}`,
+          storeId,
+          categoryId: inp.categoryId || 'sim-cat',
+          categoryName: inp.category || 'General',
+          category: inp.category || 'General',
+          barcode: inp.barcode || null,
+          sku: inp.sku || null,
+          name: inp.name.trim(),
+          unit: inp.unit || 'pza',
+          costPrice: inp.costPrice,
+          salePrice: inp.salePrice,
+          stock: inp.stock,
+          reorderPoint: inp.reorderPoint || 0,
+          estimatedSpeed: inp.estimatedSpeed || 'NORMAL',
+          unitsSold: 0,
+          salesCount: 0,
+          createdDaysAgo: 0,
+          status: 'ESTIMADO',
+          imageUrl: inp.imageUrl || undefined,
+          createdAt: new Date().toISOString(),
+        }));
+
+        setProducts(prev => [...simulated, ...prev]);
+        showToast('Productos agregados en memoria', 'success', `Modo prueba: ${inputs.length} productos simulados.`);
+        perfEnd('bulk:total');
+        return { success: true, insertedCount: inputs.length, totalCount: inputs.length, error: undefined };
+      },
+      onRealWrite: async () => {
+        try {
+          // 1. Pre-resolución de categorías (UNA sola vez usando la caché)
+          perfStart('bulk:categoria');
+          const cache = (categoriesCacheRef.current && categoriesCacheRef.current.storeId === storeId)
+            ? categoriesCacheRef.current
+            : null;
+
+          let catData = cache?.data || null;
+          const resolved = { ...(cache?.resolved || {}) };
+
+          const uniqueCatNames = Array.from(
+            new Set(inputs.map(i => (i.category || 'General').trim().toLowerCase()))
+          );
+
+          const missingCats = uniqueCatNames.filter(name => !resolved[name]);
+
+          if (missingCats.length > 0) {
+            perfCount('bulk:http_requests');
+            const { data: serverCats, error: catFetchErr } = await supabase
+              .from('categories')
+              .select('id, name')
+              .eq('store_id', storeId);
+
+            if (catFetchErr) {
+              perfEnd('bulk:categoria');
+              perfEnd('bulk:total');
+              return {
+                success: false,
+                insertedCount: 0,
+                totalCount: inputs.length,
+                error: `Error al consultar categorías: ${catFetchErr.message}`,
+              };
+            }
+
+            if (serverCats && serverCats.length > 0) {
+              catData = serverCats;
+              for (const c of serverCats) {
+                resolved[c.name.trim().toLowerCase()] = c.id;
+              }
+            }
+          }
+
+          // Validación estricta sin respaldo silencioso
+          for (const inp of inputs) {
+            const rawCat = (inp.category || 'General').trim();
+            const lowerCat = rawCat.toLowerCase();
+            if (!resolved[lowerCat]) {
+              perfEnd('bulk:categoria');
+              perfEnd('bulk:total');
+              return {
+                success: false,
+                insertedCount: 0,
+                totalCount: inputs.length,
+                error: `La categoría "${rawCat}" no existe en esta tienda`,
+              };
+            }
+          }
+
+          categoriesCacheRef.current = {
+            storeId,
+            data: catData || [],
+            resolved,
+          };
+          perfEnd('bulk:categoria');
+
+          // 2. Construir filas para inserción
+          const rows = inputs.map(inp => {
+            const catNameLower = (inp.category || 'General').trim().toLowerCase();
+            const targetCategoryId = inp.categoryId || resolved[catNameLower];
+            return {
+              store_id: storeId,
+              category_id: targetCategoryId,
+              barcode: inp.barcode?.trim() || null,
+              sku: inp.sku?.trim() || null,
+              name: inp.name.trim(),
+              unit: inp.unit || 'pza',
+              cost_price: inp.costPrice,
+              sale_price: inp.salePrice,
+              stock: inp.stock >= 0 ? inp.stock : 0,
+              reorder_point: inp.reorderPoint || 0,
+              estimated_speed: inp.estimatedSpeed || 'NORMAL',
+              units_sold: 0,
+              sales_count: 0,
+              image_url: inp.imageUrl || null,
+            };
+          });
+
+          // 3. Inserción masiva en lotes de BULK_CHUNK_SIZE
+          perfStart('bulk:insert');
+          const chunksCount = Math.ceil(rows.length / BULK_CHUNK_SIZE);
+          perfCount('bulk:http_requests', chunksCount);
+
+          const result = await productsRepository.createMany(storeId, rows, onProgress);
+          perfEnd('bulk:insert');
+
+          let postSaveWarning: string | undefined = undefined;
+
+          // 4. Traer productos insertados y refrescar estado con UN solo setState (con try/catch propio)
+          if (result.insertedIds.length > 0) {
+            perfStart('bulk:refetch');
+            try {
+              perfCount('bulk:http_requests');
+              const hasInitialStock = inputs.some(i => i.stock > 0);
+
+              const [newProducts, freshMovements] = await Promise.all([
+                productsRepository.getByIds(storeId, result.insertedIds),
+                hasInitialStock ? (perfCount('bulk:http_requests'), stockRepository.getMovements(storeId, 100)) : Promise.resolve(null),
+              ]);
+
+              setProducts(prev => {
+                const insertedIdSet = new Set(result.insertedIds);
+                const remaining = prev.filter(p => !insertedIdSet.has(p.id));
+                return [...newProducts, ...remaining];
+              });
+
+              if (freshMovements) {
+                setInventoryMovements(freshMovements);
+              }
+            } catch (refetchErr) {
+              console.error('Error al refrescar productos tras carga masiva:', refetchErr);
+              postSaveWarning = 'Los productos se guardaron, pero no se pudo actualizar la pantalla. Recarga la página.';
+              void loadStoreData(storeId).catch(() => {});
+            } finally {
+              perfEnd('bulk:refetch');
+            }
+          }
+
+          perfEnd('bulk:total');
+          perfReport();
+
+          if (result.error) {
+            console.error('Error original createMany:', result.error);
+            const friendlyError = friendlyBulkError(result.error, result.insertedCount, inputs.length);
+            const toastTitle = result.insertedCount > 0 ? 'Carga parcial con errores' : 'No se pudo guardar';
+            const savedText = result.insertedCount === 1 ? 'Se guardó 1 producto' : `Se guardaron ${result.insertedCount} productos`;
+            const totalText = inputs.length === 1 ? '1 producto' : `${inputs.length} productos`;
+            const toastMessage = result.insertedCount > 0
+              ? `${savedText} de ${totalText}. ${friendlyError}`
+              : friendlyError;
+
+            showToast(
+              toastTitle,
+              'alert',
+              toastMessage
+            );
+            return {
+              success: result.insertedCount > 0 && !postSaveWarning,
+              insertedCount: result.insertedCount,
+              totalCount: inputs.length,
+              error: friendlyError,
+              warning: postSaveWarning,
+            };
+          }
+
+          if (postSaveWarning) {
+            showToast('Carga guardada con advertencia', 'alert', postSaveWarning);
+            return {
+              success: true,
+              insertedCount: result.insertedCount,
+              totalCount: inputs.length,
+              warning: postSaveWarning,
+            };
+          }
+
+          const successCountText = result.insertedCount === 1
+            ? 'Se guardó 1 producto correctamente.'
+            : `Se guardaron ${result.insertedCount} productos correctamente.`;
+
+          showToast(
+            'Carga masiva exitosa',
+            'success',
+            successCountText
+          );
+          return {
+            success: true,
+            insertedCount: result.insertedCount,
+            totalCount: inputs.length,
+          };
+        } catch (err: any) {
+          perfEnd('bulk:total');
+          console.error('Error en addProductsBulk:', err);
+          const friendlyError = friendlyBulkError(err, 0, inputs.length);
+          showToast('No se pudo guardar', 'alert', friendlyError);
+          return {
+            success: false,
+            insertedCount: 0,
+            totalCount: inputs.length,
+            error: friendlyError,
+          };
+        }
+      },
+    });
+  }, [user.storeId, user.role, loadStoreData, showToast]);
 
   // Update existing Product in Supabase
   const updateProduct = useCallback(async (
@@ -1436,9 +1976,38 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           if (updates.categoryId !== undefined) {
             dbUpdates.category_id = updates.categoryId;
           } else if (updates.category !== undefined) {
-            const { data: catData } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
-            const cat = catData?.find((c: any) => c.name.toLowerCase() === updates.category!.toLowerCase());
-            if (cat) dbUpdates.category_id = cat.id;
+            const targetName = updates.category!.toLowerCase();
+            const cache = (categoriesCacheRef.current && categoriesCacheRef.current.storeId === user.storeId)
+              ? categoriesCacheRef.current
+              : null;
+
+            if (cache && cache.resolved[targetName]) {
+              dbUpdates.category_id = cache.resolved[targetName];
+            } else {
+              let catData = cache?.data || null;
+              let cat = catData?.find((c: any) => c.name.toLowerCase() === targetName);
+              if (!cat) {
+                const { data: serverCats } = await supabase.from('categories').select('id, name').eq('store_id', user.storeId);
+                if (serverCats && serverCats.length > 0) {
+                  catData = serverCats;
+                  cat = catData.find((c: any) => c.name.toLowerCase() === targetName);
+                }
+              }
+              const resolvedId = cat ? cat.id : (catData && catData.length > 0 ? catData[0].id : undefined);
+              if (resolvedId) {
+                dbUpdates.category_id = resolvedId;
+                if (user.storeId) {
+                  categoriesCacheRef.current = {
+                    storeId: user.storeId,
+                    data: catData || [],
+                    resolved: {
+                      ...(cache?.resolved || {}),
+                      [targetName]: resolvedId,
+                    },
+                  };
+                }
+              }
+            }
           }
           if (updates.unit !== undefined) dbUpdates.unit = updates.unit;
           if (updates.costPrice !== undefined) dbUpdates.cost_price = Number(updates.costPrice);
@@ -2010,11 +2579,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const registerUser = useCallback(async (
     name: string, 
     email: string, 
-    password = 'password123',
+    password: string,
     role: UserRole = 'ADMIN',
     phone?: string
   ): Promise<{ success: boolean; requiresEmailConfirmation?: boolean; error?: string }> => {
-    if (!email || !name || !password) {
+    if (!password || password.length < 6) {
+      const msg = 'La contraseña debe tener al menos 6 caracteres.';
+      showToast(msg, 'alert');
+      return { success: false, error: msg };
+    }
+
+    if (!email || !name) {
       const msg = 'Por favor completa todos los campos requeridos';
       showToast(msg, 'alert');
       return { success: false, error: msg };
@@ -2209,6 +2784,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const logout = useCallback(async () => {
     setShowLogoutModal(false);
     setIsTestingRole(false);
+
+    // Limpieza de canal y temporizador Realtime
+    if (typeof realtimeChannelRef.current === 'function') {
+      realtimeChannelRef.current();
+      realtimeChannelRef.current = null;
+    }
+    if (realtimeProductsDebounceRef.current) {
+      clearTimeout(realtimeProductsDebounceRef.current);
+      realtimeProductsDebounceRef.current = null;
+    }
+
     await supabase.auth.signOut();
     setAuthScreen('login');
     showToast('Sesión cerrada', 'info', 'Vuelve pronto');
@@ -2879,6 +3465,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         checkout,
         registerSaleSingle,
         addProduct,
+        addProductsBulk,
         updateProduct,
         deleteProduct,
         calibrationEvent,

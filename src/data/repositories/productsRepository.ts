@@ -1,18 +1,118 @@
 import { supabase } from '@data/supabase/client';
 import { Product } from '@shared/types/index';
 import { productMapper } from '@data/mappers/productMapper';
+import { perfCount } from '@shared/utils/perf';
+import { fetchAllPages, sortRowsByCreatedAtDesc } from '@shared/utils/pagination';
+
+export const BULK_CHUNK_SIZE = 100;
 
 export const productsRepository = {
   async getByStoreId(storeId: string): Promise<Product[]> {
+    const rawRows = await fetchAllPages(
+      async (from, to) => {
+        perfCount('load:productos:paginas', 1);
+        const { data, count, error } = await supabase
+          .from('product_stats')
+          .select('*', { count: 'exact' })
+          .eq('store_id', storeId)
+          .is('archived_at', null)
+          .order('id')
+          .range(from, to);
+
+        if (error) throw error;
+        return {
+          rows: data || [],
+          count: count,
+        };
+      },
+      {
+        onMissingCount: () => {
+          perfCount('load:productos:sin_conteo', 1);
+        },
+      }
+    );
+
+    // Conservar orden original de la app: created_at descendente (desempate por id)
+    sortRowsByCreatedAtDesc(rawRows);
+
+    return rawRows.map(productMapper.fromRow);
+  },
+
+  async getById(storeId: string, productId: string): Promise<Product | null> {
     const { data, error } = await supabase
       .from('product_stats')
       .select('*')
       .eq('store_id', storeId)
-      .is('archived_at', null)
-      .order('created_at', { ascending: false });
+      .eq('id', productId)
+      .maybeSingle();
 
     if (error) throw error;
-    return (data || []).map(productMapper.fromRow);
+    if (!data) return null;
+    return productMapper.fromRow(data);
+  },
+
+  async getByIds(storeId: string, ids: string[]): Promise<Product[]> {
+    if (!ids || ids.length === 0) return [];
+    const CHUNK_SIZE = 100;
+    const chunks: string[][] = [];
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+      chunks.push(ids.slice(i, i + CHUNK_SIZE));
+    }
+
+    const chunkResults = await Promise.all(
+      chunks.map(async (chunk) => {
+        const { data, error } = await supabase
+          .from('product_stats')
+          .select('*')
+          .eq('store_id', storeId)
+          .in('id', chunk);
+
+        if (error) throw error;
+        return (data || []).map(productMapper.fromRow);
+      })
+    );
+
+    return chunkResults.flat();
+  },
+
+  async createMany(
+    storeId: string,
+    rows: any[],
+    onProgress?: (insertedCount: number, totalCount: number) => void
+  ): Promise<{ insertedCount: number; insertedIds: string[]; error?: string }> {
+    const insertedIds: string[] = [];
+    const total = rows.length;
+
+    for (let i = 0; i < total; i += BULK_CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + BULK_CHUNK_SIZE);
+      const { data, error } = await supabase
+        .from('products')
+        .insert(chunk)
+        .select('id');
+
+      if (error) {
+        return {
+          insertedCount: insertedIds.length,
+          insertedIds,
+          error: error.message || 'Error al insertar lote de productos',
+        };
+      }
+
+      if (data) {
+        for (const item of data) {
+          if (item?.id) insertedIds.push(item.id);
+        }
+      }
+
+      if (onProgress) {
+        onProgress(insertedIds.length, total);
+      }
+    }
+
+    return {
+      insertedCount: insertedIds.length,
+      insertedIds,
+    };
   },
 
   async ensureCategory(storeId: string, categoryName: string): Promise<string> {
