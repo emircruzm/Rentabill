@@ -260,6 +260,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const recoveryModeRef = useRef<boolean>(false);
   const recoveryParsedRef = useRef<RecoveryLinkResult | null>(null);
   const recoverySessionAppliedRef = useRef<boolean>(false);
+  const recoverySessionPromiseRef = useRef<Promise<boolean> | null>(null);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   if (recoveryParsedRef.current === null) {
     if (typeof window !== 'undefined' && window.location?.hash) {
@@ -1078,15 +1087,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       if (!recoverySessionAppliedRef.current) {
         recoverySessionAppliedRef.current = true;
-        applyRecoverySessionUseCase(recoveryResult.accessToken, recoveryResult.refreshToken)
+        recoverySessionPromiseRef.current = applyRecoverySessionUseCase(recoveryResult.accessToken, recoveryResult.refreshToken)
+          .then(() => true)
           .catch((err: any) => {
             console.error('Error aplicando sesión de recuperación:', err);
             recoveryModeRef.current = false;
             showToast('No se pudo validar el enlace. Pide uno nuevo desde «¿Olvidaste tu contraseña?».', 'alert');
-            if (isMounted) {
+            if (isMountedRef.current) {
               setAuthScreen('login');
               authScreenRef.current = 'login';
             }
+            return false;
           });
       }
     } else if (recoveryResult && recoveryResult.kind === 'error') {
@@ -2857,6 +2868,17 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const completeRecovery = useCallback(async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
     try {
       setLoading(true);
+
+      if (recoverySessionPromiseRef.current) {
+        const sessionReady = await recoverySessionPromiseRef.current;
+        if (!sessionReady) {
+          return {
+            success: false,
+            error: 'El enlace venció o ya se usó. Pide uno nuevo desde «¿Olvidaste tu contraseña?».'
+          };
+        }
+      }
+
       await updatePasswordUseCase(newPassword);
       await authRepository.signOut();
       recoveryModeRef.current = false;
