@@ -1,6 +1,6 @@
 import { authRepository } from '@data/repositories/authRepository';
 import { UserRole } from '@shared/types/index';
-import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from '@shared/index';
+import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE, validatePasswordChange } from '@shared/index';
 
 export async function loginUseCase(email: string, password: string) {
   if (!email || !password) {
@@ -74,4 +74,41 @@ export async function updatePasswordUseCase(newPassword: string) {
   }
   return data;
 }
+
+export async function changePasswordUseCase(
+  email: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ user: any }> {
+  const validationError = validatePasswordChange(
+    currentPassword,
+    newPassword.trim(),
+    newPassword.trim()
+  );
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const { error: signInError } = await authRepository.signInWithPassword(email.trim(), currentPassword);
+  if (signInError) {
+    const errObj = signInError as any;
+    const msg = String(errObj.message || '');
+    if (
+      errObj.code === 'invalid_credentials' ||
+      msg.includes('Invalid login credentials') ||
+      msg.includes('invalid_grant')
+    ) {
+      throw new Error('La contraseña actual es incorrecta.');
+    }
+    throw signInError;
+  }
+
+  const { data, error: updateError } = await authRepository.updatePassword(newPassword.trim());
+  if (updateError) {
+    throw updateError;
+  }
+
+  return { user: data?.user };
+}
+
 

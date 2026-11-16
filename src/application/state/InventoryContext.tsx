@@ -37,7 +37,7 @@ import {
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
 import { perfStart, perfEnd, perfCount, perfReport } from '@shared/utils/perf';
 import { parseRecoveryHash, RecoveryLinkResult, isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from '@shared/index';
-import { applyRecoverySessionUseCase, updatePasswordUseCase } from '../use-cases/index';
+import { applyRecoverySessionUseCase, updatePasswordUseCase, changePasswordUseCase } from '../use-cases/index';
 import { supabase } from '@data/supabase/client';
 import { formatAuthError } from '@data/supabase/errorMapper';
 import { 
@@ -200,6 +200,7 @@ interface InventoryContextType {
   // Async states
   completeRecovery: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
   cancelRecovery: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
   loading: boolean;
   error: string | null;
   refreshData: () => Promise<void>;
@@ -2906,6 +2907,18 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, []);
 
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      if (!user.emailOrPhone) {
+        return { success: false, error: 'No se encontró el correo del usuario.' };
+      }
+      await changePasswordUseCase(user.emailOrPhone, currentPassword, newPassword);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Error al cambiar la contraseña' };
+    }
+  }, [user.emailOrPhone]);
+
   const updateProfile = useCallback(async (updates: Partial<UserProfile>) => {
     return await runWrite({
       isTestingRole: isTestingRoleRef.current,
@@ -3657,6 +3670,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         loading,
         completeRecovery,
         cancelRecovery,
+        changePassword,
         error,
         refreshData,
       }}
