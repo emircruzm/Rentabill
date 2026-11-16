@@ -32,6 +32,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
   const [forgotInput, setForgotInput] = useState('');
   const [isSendingForgot, setIsSendingForgot] = useState(false);
   const [forgotCooldown, setForgotCooldown] = useState(0);
+  const [forgotMessage, setForgotMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const forgotTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -130,7 +131,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
     const cleanEmail = forgotInput.trim();
     const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!cleanEmail || !EMAIL_REGEX.test(cleanEmail)) {
-      showToast('Escribe un correo válido.', 'alert');
+      setForgotMessage({ type: 'error', text: 'Escribe un correo válido.' });
       return;
     }
 
@@ -151,21 +152,23 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
       const { error } = await resetPasswordUseCase(cleanEmail);
       if (error) {
         if (isRateLimitError(error)) {
-          showToast('Espera un momento antes de pedir otro enlace.', 'alert');
+          setForgotMessage({ type: 'error', text: 'Espera un momento antes de pedir otro enlace.' });
         } else {
-          showToast('No se pudo enviar el enlace. Intenta de nuevo en unos minutos.', 'alert');
+          setForgotMessage({ type: 'error', text: 'No se pudo enviar el enlace. Intenta de nuevo en unos minutos.' });
         }
         return;
       }
 
-      setShowForgotModal(false);
-      showToast('Si el correo está registrado, recibirás un enlace.', 'info', 'Revisa tu bandeja de entrada o spam.');
+      setForgotMessage({
+        type: 'success',
+        text: 'Si el correo está registrado, recibirás un enlace. Revisa tu bandeja de entrada o spam.',
+      });
       startCooldown(60);
     } catch (err: any) {
       if (isRateLimitError(err)) {
-        showToast('Espera un momento antes de pedir otro enlace.', 'alert');
+        setForgotMessage({ type: 'error', text: 'Espera un momento antes de pedir otro enlace.' });
       } else {
-        showToast('No se pudo enviar el enlace. Intenta de nuevo en unos minutos.', 'alert');
+        setForgotMessage({ type: 'error', text: 'No se pudo enviar el enlace. Intenta de nuevo en unos minutos.' });
       }
     } finally {
       setIsSendingForgot(false);
@@ -350,6 +353,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
                   type="button"
                   onClick={() => {
                     setForgotInput(email);
+                    setForgotMessage(null);
                     setShowForgotModal(true);
                   }}
                   className="text-[11px] font-semibold text-emerald-800 hover:underline"
@@ -468,10 +472,31 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
             <input
               type="email"
               value={forgotInput}
-              onChange={e => setForgotInput(e.target.value)}
+              onChange={e => {
+                setForgotInput(e.target.value);
+                if (forgotMessage) setForgotMessage(null);
+              }}
               placeholder="tu-correo@ejemplo.com"
               className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-hidden focus:border-emerald-600 font-medium"
             />
+            {forgotMessage && (
+              <div
+                className={`p-3 rounded-2xl text-xs flex items-start gap-2 animate-fadeIn ${
+                  forgotMessage.type === 'error'
+                    ? 'bg-rose-50 border border-rose-200 text-rose-800'
+                    : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                }`}
+              >
+                {forgotMessage.type === 'error' ? (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1 leading-relaxed">
+                  <span>{forgotMessage.text}</span>
+                </div>
+              </div>
+            )}
             <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
@@ -479,7 +504,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
                 onClick={() => setShowForgotModal(false)}
                 className="px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
               >
-                Cancelar
+                {forgotMessage?.type === 'success' || forgotCooldown > 0 ? 'Cerrar' : 'Cancelar'}
               </button>
               <button
                 type="button"

@@ -44,23 +44,48 @@ const AppContent: React.FC = () => {
   const { authScreen, settings } = useInventory();
 
   if (authScreen === 'login') {
-    return <AuthView initialMode="login" />;
+    return (
+      <>
+        <AuthView initialMode="login" />
+        <ToastNotification />
+      </>
+    );
   }
 
   if (authScreen === 'register') {
-    return <AuthView initialMode="register" />;
+    return (
+      <>
+        <AuthView initialMode="register" />
+        <ToastNotification />
+      </>
+    );
   }
 
   if (authScreen === 'onboarding') {
-    return <OnboardingView />;
+    return (
+      <>
+        <OnboardingView />
+        <ToastNotification />
+      </>
+    );
   }
 
   if (authScreen === 'recovery') {
-    return <ResetPasswordView />;
+    return (
+      <>
+        <ResetPasswordView />
+        <ToastNotification />
+      </>
+    );
   }
 
   if (authScreen === 'error') {
-    return <ConnectionErrorView />;
+    return (
+      <>
+        <ConnectionErrorView />
+        <ToastNotification />
+      </>
+    );
   }
 
   return (
