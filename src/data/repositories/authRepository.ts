@@ -24,6 +24,14 @@ export const authRepository = {
     return supabase.auth.signOut();
   },
 
+  async updatePassword(newPassword: string) {
+    return supabase.auth.updateUser({ password: newPassword });
+  },
+
+  async setSessionFromTokens(accessToken: string, refreshToken: string) {
+    return supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+  },
+
   async getSession() {
     return supabase.auth.getSession();
   },

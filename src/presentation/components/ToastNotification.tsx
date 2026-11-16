@@ -22,7 +22,7 @@ export const ToastNotification: React.FC = () => {
   };
 
   return (
-    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-sm transition-all duration-300 pointer-events-auto">
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] w-11/12 max-w-sm transition-all duration-300 pointer-events-auto">
       <div className={`p-3.5 rounded-2xl border flex items-start gap-3 shadow-lg backdrop-blur-xs ${bgStyles[toast.type]}`}>
         {icons[toast.type]}
         <div className="flex-1 min-w-0">

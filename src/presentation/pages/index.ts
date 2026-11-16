@@ -8,3 +8,4 @@ export * from './POSView';
 export * from './ProductRegisterView';
 export * from './PulsoView';
 export * from './RestockSimulatorView';
+export * from './ResetPasswordView';
