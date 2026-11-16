@@ -1,8 +1,9 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { TrendingUp, Lock, Mail, User, Phone, ArrowRight, Eye, EyeOff, CheckCircle2, AlertCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { useInventory } from '@application/index';
 import { resendConfirmationUseCase, resetPasswordUseCase } from '@application/index';
 import { formatAuthError } from '@shared/formatters/index';
+import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from '@shared/index';
 
 interface AuthViewProps {
   initialMode?: 'login' | 'register';
@@ -30,6 +31,33 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotInput, setForgotInput] = useState('');
   const [isSendingForgot, setIsSendingForgot] = useState(false);
+  const [forgotCooldown, setForgotCooldown] = useState(0);
+  const forgotTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (forgotTimerRef.current) {
+        clearInterval(forgotTimerRef.current);
+      }
+    };
+  }, []);
+
+  const startCooldown = (seconds = 60) => {
+    if (forgotTimerRef.current) {
+      clearInterval(forgotTimerRef.current);
+    }
+    setForgotCooldown(seconds);
+    forgotTimerRef.current = setInterval(() => {
+      setForgotCooldown(prev => {
+        if (prev <= 1) {
+          if (forgotTimerRef.current) clearInterval(forgotTimerRef.current);
+          forgotTimerRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -56,8 +84,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
           setErrorMessage('Las contraseñas no coinciden. Verifícalas.');
           return;
         }
-        if (cleanPassword.length < 6) {
-          setErrorMessage('La contraseña debe tener al menos 6 caracteres.');
+        if (!isPasswordLongEnough(cleanPassword)) {
+          setErrorMessage(PASSWORD_TOO_SHORT_MESSAGE);
           return;
         }
 
@@ -97,20 +125,48 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
   };
 
   const handleSendForgotPassword = async () => {
-    if (!forgotInput.trim()) {
-      showToast('Por favor escribe tu correo electrónico', 'alert');
+    if (forgotCooldown > 0) return;
+
+    const cleanEmail = forgotInput.trim();
+    const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!cleanEmail || !EMAIL_REGEX.test(cleanEmail)) {
+      showToast('Escribe un correo válido.', 'alert');
       return;
     }
 
+    const isRateLimitError = (err: any) => {
+      if (!err) return false;
+      const errStr = (err.message || String(err) || '').toLowerCase();
+      return (
+        err.status === 429 ||
+        err.code === 'over_email_send_rate_limit' ||
+        errStr.includes('rate limit') ||
+        errStr.includes('over_email_send_rate_limit') ||
+        errStr.includes('after 60 seconds')
+      );
+    };
+
     try {
       setIsSendingForgot(true);
-      const { error } = await resetPasswordUseCase(forgotInput.trim());
-      if (error) throw error;
+      const { error } = await resetPasswordUseCase(cleanEmail);
+      if (error) {
+        if (isRateLimitError(error)) {
+          showToast('Espera un momento antes de pedir otro enlace.', 'alert');
+        } else {
+          showToast('No se pudo enviar el enlace. Intenta de nuevo en unos minutos.', 'alert');
+        }
+        return;
+      }
 
       setShowForgotModal(false);
-      showToast('Enlace de recuperación enviado', 'success', 'Revisa tu bandeja de entrada o spam.');
+      showToast('Si el correo está registrado, recibirás un enlace.', 'info', 'Revisa tu bandeja de entrada o spam.');
+      startCooldown(60);
     } catch (err: any) {
-      showToast('Error al enviar enlace', 'alert', formatAuthError(err));
+      if (isRateLimitError(err)) {
+        showToast('Espera un momento antes de pedir otro enlace.', 'alert');
+      } else {
+        showToast('No se pudo enviar el enlace. Intenta de nuevo en unos minutos.', 'alert');
+      }
     } finally {
       setIsSendingForgot(false);
     }
@@ -312,7 +368,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
                   setPassword(e.target.value);
                   if (errorMessage) setErrorMessage(null);
                 }}
-                placeholder="Mínimo 6 caracteres"
+                placeholder={mode === 'register' ? 'Mínimo 8 caracteres' : 'Tu contraseña'}
                 className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-600"
               />
               <button
@@ -407,7 +463,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
           <div className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-xl">
             <h3 className="text-sm font-bold text-slate-900">Recuperar contraseña</h3>
             <p className="text-xs text-slate-500">
-              Escribe tu correo registrado para recibir el enlace de restablecimiento.
+              Escribe tu correo. Si tiene una cuenta, te enviaremos un enlace para crear una contraseña nueva.
             </p>
             <input
               type="email"
@@ -427,12 +483,18 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
               </button>
               <button
                 type="button"
-                disabled={isSendingForgot}
+                disabled={isSendingForgot || forgotCooldown > 0}
                 onClick={handleSendForgotPassword}
                 className="px-4 py-2 rounded-xl bg-emerald-800 text-white text-xs font-bold hover:bg-emerald-900 shadow-xs flex items-center gap-1.5 disabled:opacity-50"
               >
                 {isSendingForgot && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isSendingForgot ? 'Enviando...' : 'Enviar enlace'}</span>
+                <span>
+                  {isSendingForgot
+                    ? 'Enviando...'
+                    : forgotCooldown > 0
+                    ? `Reenviar en ${forgotCooldown} s`
+                    : 'Enviar enlace'}
+                </span>
               </button>
             </div>
           </div>

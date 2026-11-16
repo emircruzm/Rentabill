@@ -17,9 +17,10 @@ export function formatAuthError(error: any): string {
   if (
     msg.includes('Password should be at least') ||
     msg.includes('weak_password') ||
-    msg.includes('at least 6 characters')
+    msg.includes('at least 6 characters') ||
+    msg.includes('at least 8 characters')
   ) {
-    return 'La contraseña es muy corta. Debe tener al menos 6 caracteres.';
+    return 'La contraseña es muy corta. Debe tener al menos 8 caracteres.';
   }
   if (
     msg.includes('invalid email') ||

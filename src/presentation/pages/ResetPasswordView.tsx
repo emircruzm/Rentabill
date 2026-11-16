@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { TrendingUp, Lock, Eye, EyeOff, RefreshCw, AlertCircle, ArrowRight } from 'lucide-react';
 import { useInventory } from '@application/index';
 import { formatAuthError } from '@shared/formatters/index';
+import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from '@shared/index';
 
 export const ResetPasswordView: React.FC = () => {
   const { completeRecovery, cancelRecovery } = useInventory();
@@ -31,8 +32,8 @@ export const ResetPasswordView: React.FC = () => {
       return;
     }
 
-    if (cleanNewPass.length < 6) {
-      setErrorMessage('La contraseña debe tener al menos 6 caracteres.');
+    if (!isPasswordLongEnough(cleanNewPass)) {
+      setErrorMessage(PASSWORD_TOO_SHORT_MESSAGE);
       return;
     }
 
@@ -110,7 +111,7 @@ export const ResetPasswordView: React.FC = () => {
                   setNewPassword(e.target.value);
                   if (errorMessage) setErrorMessage(null);
                 }}
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-600"
               />
               <button

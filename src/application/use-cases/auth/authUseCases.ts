@@ -1,5 +1,6 @@
 import { authRepository } from '@data/repositories/authRepository';
 import { UserRole } from '@shared/types/index';
+import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from '@shared/index';
 
 export async function loginUseCase(email: string, password: string) {
   if (!email || !password) {
@@ -64,8 +65,8 @@ export async function applyRecoverySessionUseCase(accessToken: string, refreshTo
 }
 
 export async function updatePasswordUseCase(newPassword: string) {
-  if (!newPassword || newPassword.length < 6) {
-    throw new Error('La contraseña debe tener al menos 6 caracteres.');
+  if (!isPasswordLongEnough(newPassword)) {
+    throw new Error(PASSWORD_TOO_SHORT_MESSAGE);
   }
   const { data, error } = await authRepository.updatePassword(newPassword);
   if (error) {
