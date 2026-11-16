@@ -37,6 +37,7 @@ import { uploadImageUseCase } from '@application/index';
 import { useInventory } from '@application/index';
 import { UserRole, StoreConfig, TeamInvitation, TeamMember } from '@shared/types/index';
 import { formatPeruPhoneDisplay } from '@shared/formatters/index';
+import { validatePasswordChange } from '@shared/index';
 
 type SectionKey = 'negocio' | 'cuenta' | 'equipo' | 'metas' | 'datos' | 'ayuda';
 
@@ -69,6 +70,7 @@ export const AjustesView: React.FC = () => {
     switchStore,
     setShowStoreSelectorModal,
     openAddStoreOnboarding,
+    changePassword,
     showToast 
   } = useInventory();
 
@@ -84,6 +86,7 @@ export const AjustesView: React.FC = () => {
   const [currentPass, setCurrentPass] = useState('');
   const [newPass, setNewPass] = useState('');
   const [confirmNewPass, setConfirmNewPass] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const [isUploadingQr, setIsUploadingQr] = useState(false);
 
@@ -182,21 +185,32 @@ export const AjustesView: React.FC = () => {
     }
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPass || newPass !== confirmNewPass) {
-      showToast('Las contraseñas nuevas no coinciden', 'alert');
+    const validationError = validatePasswordChange(currentPass, newPass, confirmNewPass);
+    if (validationError) {
+      showToast(validationError, 'alert');
       return;
     }
-    if (newPass.length < 4) {
-      showToast('La nueva contraseña debe tener mínimo 4 caracteres', 'alert');
-      return;
+
+    try {
+      setIsChangingPassword(true);
+      const res = await changePassword(currentPass, newPass);
+      if (!res.success) {
+        showToast(res.error || 'Error al cambiar la contraseña', 'alert');
+        return;
+      }
+
+      setCurrentPass('');
+      setNewPass('');
+      setConfirmNewPass('');
+      setShowPasswordChange(false);
+      showToast('Contraseña actualizada con éxito', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Error al cambiar la contraseña', 'alert');
+    } finally {
+      setIsChangingPassword(false);
     }
-    setShowPasswordChange(false);
-    setCurrentPass('');
-    setNewPass('');
-    setConfirmNewPass('');
-    showToast('Contraseña actualizada con éxito', 'success');
   };
 
   const sections: { id: SectionKey; label: string; icon: React.ReactNode; desc: string }[] = [
@@ -682,15 +696,17 @@ export const AjustesView: React.FC = () => {
                   placeholder="Contraseña actual"
                   value={currentPass}
                   onChange={e => setCurrentPass(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white"
+                  disabled={isChangingPassword}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white disabled:opacity-50"
                 />
                 <input
                   type="password"
                   required
-                  placeholder="Nueva contraseña"
+                  placeholder="Nueva contraseña (mínimo 8 caracteres)"
                   value={newPass}
                   onChange={e => setNewPass(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white"
+                  disabled={isChangingPassword}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white disabled:opacity-50"
                 />
                 <input
                   type="password"
@@ -698,21 +714,24 @@ export const AjustesView: React.FC = () => {
                   placeholder="Confirmar nueva contraseña"
                   value={confirmNewPass}
                   onChange={e => setConfirmNewPass(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white"
+                  disabled={isChangingPassword}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white disabled:opacity-50"
                 />
                 <div className="flex items-center justify-end gap-2 pt-1">
                   <button
                     type="button"
                     onClick={() => setShowPasswordChange(false)}
-                    className="px-3 py-1 text-xs font-bold text-slate-500"
+                    disabled={isChangingPassword}
+                    className="px-3 py-1 text-xs font-bold text-slate-500 disabled:opacity-50"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
-                    className="px-3 py-1 rounded-lg bg-emerald-800 text-white text-xs font-bold"
+                    disabled={isChangingPassword}
+                    className="px-3 py-1 rounded-lg bg-emerald-800 text-white text-xs font-bold disabled:opacity-50"
                   >
-                    Actualizar clave
+                    {isChangingPassword ? 'Guardando...' : 'Actualizar clave'}
                   </button>
                 </div>
               </form>
