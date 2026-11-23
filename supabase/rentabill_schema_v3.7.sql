@@ -1808,7 +1808,7 @@ CREATE POLICY categories_delete ON public.categories FOR DELETE TO authenticated
 
 -- suppliers
 CREATE POLICY suppliers_select ON public.suppliers FOR SELECT TO authenticated
-    USING (public.is_store_member(store_id));
+    USING (public.has_store_role(store_id, ARRAY['ADMIN', 'REPOSITOR']));
 CREATE POLICY suppliers_insert ON public.suppliers FOR INSERT TO authenticated
     WITH CHECK (public.has_store_role(store_id, ARRAY['ADMIN', 'REPOSITOR']));
 CREATE POLICY suppliers_update ON public.suppliers FOR UPDATE TO authenticated
@@ -1841,13 +1841,13 @@ CREATE POLICY sale_items_select ON public.sale_items FOR SELECT TO authenticated
 CREATE POLICY movements_select ON public.inventory_movements FOR SELECT TO authenticated
     USING (public.is_store_member(store_id));
 CREATE POLICY purchases_select ON public.purchases FOR SELECT TO authenticated
-    USING (public.is_store_member(store_id));
+    USING (public.has_store_role(store_id, ARRAY['ADMIN', 'REPOSITOR']));
 CREATE POLICY purchase_items_select ON public.purchase_items FOR SELECT TO authenticated
-    USING (public.is_store_member(store_id));
+    USING (public.has_store_role(store_id, ARRAY['ADMIN', 'REPOSITOR']));
 
 -- simulations
 CREATE POLICY simulations_select ON public.simulations FOR SELECT TO authenticated
-    USING (public.is_store_member(store_id));
+    USING (public.has_store_role(store_id, ARRAY['ADMIN']));
 CREATE POLICY simulations_insert ON public.simulations FOR INSERT TO authenticated
     WITH CHECK (public.has_store_role(store_id, ARRAY['ADMIN']));
 CREATE POLICY simulations_update ON public.simulations FOR UPDATE TO authenticated
