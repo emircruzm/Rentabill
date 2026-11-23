@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { TrendingUp, Lock, Eye, EyeOff, RefreshCw, AlertCircle, ArrowRight } from 'lucide-react';
 import { useInventory } from '@application/index';
 import { formatAuthError } from '@shared/formatters/index';
-import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from '@shared/index';
+import { isPasswordValid, PASSWORD_POLICY_MESSAGE } from '@shared/index';
 
 export const ResetPasswordView: React.FC = () => {
   const { completeRecovery, cancelRecovery } = useInventory();
@@ -32,8 +32,8 @@ export const ResetPasswordView: React.FC = () => {
       return;
     }
 
-    if (!isPasswordLongEnough(cleanNewPass)) {
-      setErrorMessage(PASSWORD_TOO_SHORT_MESSAGE);
+    if (!isPasswordValid(cleanNewPass)) {
+      setErrorMessage(PASSWORD_POLICY_MESSAGE);
       return;
     }
 
@@ -111,7 +111,7 @@ export const ResetPasswordView: React.FC = () => {
                   setNewPassword(e.target.value);
                   if (errorMessage) setErrorMessage(null);
                 }}
-                placeholder="Mínimo 8 caracteres"
+                placeholder="Mínimo 10 caracteres, letra y número"
                 className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-600"
               />
               <button

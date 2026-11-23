@@ -1,4 +1,9 @@
-import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from './passwordPolicy.ts';
+import {
+  isPasswordValid,
+  validatePassword,
+  PASSWORD_POLICY_MESSAGE,
+  PASSWORD_TOO_LONG_MESSAGE,
+} from './passwordPolicy.ts';
 
 /**
  * Valida el cambio de contraseña en Ajustes.
@@ -9,7 +14,7 @@ import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from './passwordPoli
  * 3. confirm vacío -> "Confirma tu nueva contraseña."
  * 4. next !== confirm -> "Las contraseñas no coinciden."
  * 5. current === next -> "La nueva contraseña debe ser diferente de la actual."
- * 6. !isPasswordLongEnough(next) -> PASSWORD_TOO_SHORT_MESSAGE
+ * 6. !isPasswordValid(next) -> PASSWORD_TOO_LONG_MESSAGE (si falla solo por >72 bytes) | PASSWORD_POLICY_MESSAGE
  * 7. éxito -> null
  */
 export function validatePasswordChange(
@@ -39,8 +44,8 @@ export function validatePasswordChange(
     return 'La nueva contraseña debe ser diferente de la actual.';
   }
 
-  if (!isPasswordLongEnough(cleanNext)) {
-    return PASSWORD_TOO_SHORT_MESSAGE;
+  if (!isPasswordValid(cleanNext)) {
+    return validatePassword(cleanNext) ?? PASSWORD_POLICY_MESSAGE;
   }
 
   return null;
