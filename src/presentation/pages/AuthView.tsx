@@ -3,7 +3,7 @@ import { TrendingUp, Lock, Mail, User, Phone, ArrowRight, Eye, EyeOff, CheckCirc
 import { useInventory } from '@application/index';
 import { resendConfirmationUseCase, resetPasswordUseCase } from '@application/index';
 import { formatAuthError } from '@shared/formatters/index';
-import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from '@shared/index';
+import { isPasswordValid, PASSWORD_POLICY_MESSAGE } from '@shared/index';
 
 interface AuthViewProps {
   initialMode?: 'login' | 'register';
@@ -85,8 +85,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
           setErrorMessage('Las contraseñas no coinciden. Verifícalas.');
           return;
         }
-        if (!isPasswordLongEnough(cleanPassword)) {
-          setErrorMessage(PASSWORD_TOO_SHORT_MESSAGE);
+        if (!isPasswordValid(cleanPassword)) {
+          setErrorMessage(PASSWORD_POLICY_MESSAGE);
           return;
         }
 
@@ -372,7 +372,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode = 'login' }) => 
                   setPassword(e.target.value);
                   if (errorMessage) setErrorMessage(null);
                 }}
-                placeholder={mode === 'register' ? 'Mínimo 8 caracteres' : 'Tu contraseña'}
+                placeholder={mode === 'register' ? 'Mínimo 10 caracteres, letra y número' : 'Tu contraseña'}
                 className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:outline-hidden focus:border-emerald-600"
               />
               <button

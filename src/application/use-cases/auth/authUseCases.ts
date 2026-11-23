@@ -1,6 +1,6 @@
 import { authRepository } from '@data/repositories/authRepository';
 import { UserRole } from '@shared/types/index';
-import { isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE, validatePasswordChange } from '@shared/index';
+import { isPasswordValid, PASSWORD_POLICY_MESSAGE, validatePasswordChange } from '@shared/index';
 
 export async function loginUseCase(email: string, password: string) {
   if (!email || !password) {
@@ -18,6 +18,9 @@ export async function registerUseCase(
 ) {
   if (!email) {
     throw new Error('El correo es requerido');
+  }
+  if (password && !isPasswordValid(password)) {
+    throw new Error(PASSWORD_POLICY_MESSAGE);
   }
   return await authRepository.signUp(
     email.trim(),
@@ -65,13 +68,23 @@ export async function applyRecoverySessionUseCase(accessToken: string, refreshTo
 }
 
 export async function updatePasswordUseCase(newPassword: string) {
-  if (!isPasswordLongEnough(newPassword)) {
-    throw new Error(PASSWORD_TOO_SHORT_MESSAGE);
+  const cleanPassword = newPassword.trim();
+  if (!isPasswordValid(cleanPassword)) {
+    throw new Error(PASSWORD_POLICY_MESSAGE);
   }
-  const { data, error } = await authRepository.updatePassword(newPassword);
+  // En recuperación NO se envía current_password
+  const { data, error } = await authRepository.updatePassword(cleanPassword);
   if (error) {
     throw error;
   }
+
+  // H-13: Cerrar otras sesiones activas de forma segura
+  try {
+    await authRepository.signOutOthers();
+  } catch {
+    console.warn('Aviso: No se pudieron cerrar otras sesiones activas');
+  }
+
   return data;
 }
 
@@ -103,9 +116,17 @@ export async function changePasswordUseCase(
     throw signInError;
   }
 
-  const { data, error: updateError } = await authRepository.updatePassword(newPassword.trim());
+  // H-11: Se envía current_password en updateUser
+  const { data, error: updateError } = await authRepository.updatePassword(newPassword.trim(), currentPassword);
   if (updateError) {
     throw updateError;
+  }
+
+  // H-13: Cerrar otras sesiones activas con scope 'others' dentro de try/catch
+  try {
+    await authRepository.signOutOthers();
+  } catch {
+    console.warn('Aviso: No se pudieron cerrar otras sesiones activas');
   }
 
   return { user: data?.user };

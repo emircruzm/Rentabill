@@ -36,7 +36,7 @@ import {
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
 import { perfStart, perfEnd, perfCount, perfReport } from '@shared/utils/perf';
-import { parseRecoveryHash, RecoveryLinkResult, isPasswordLongEnough, PASSWORD_TOO_SHORT_MESSAGE } from '@shared/index';
+import { parseRecoveryHash, RecoveryLinkResult, isPasswordValid, PASSWORD_POLICY_MESSAGE } from '@shared/index';
 import { applyRecoverySessionUseCase, updatePasswordUseCase, changePasswordUseCase } from '../use-cases/index';
 import { supabase } from '@data/supabase/client';
 import { formatAuthError } from '@data/supabase/errorMapper';
@@ -2649,9 +2649,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     role: UserRole = 'ADMIN',
     phone?: string
   ): Promise<{ success: boolean; requiresEmailConfirmation?: boolean; error?: string }> => {
-    if (!isPasswordLongEnough(password)) {
-      showToast(PASSWORD_TOO_SHORT_MESSAGE, 'alert');
-      return { success: false, error: PASSWORD_TOO_SHORT_MESSAGE };
+    if (!isPasswordValid(password)) {
+      showToast(PASSWORD_POLICY_MESSAGE, 'alert');
+      return { success: false, error: PASSWORD_POLICY_MESSAGE };
     }
 
     if (!email || !name) {

@@ -702,7 +702,7 @@ export const AjustesView: React.FC = () => {
                 <input
                   type="password"
                   required
-                  placeholder="Nueva contraseña (mínimo 8 caracteres)"
+                  placeholder="Nueva contraseña (mínimo 10 caracteres, letra y número)"
                   value={newPass}
                   onChange={e => setNewPass(e.target.value)}
                   disabled={isChangingPassword}

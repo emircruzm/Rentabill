@@ -569,10 +569,6 @@ async function main() {
     let eventsC = 0;
     let eventsAnon = 0;
 
-    let reachedSubA = false;
-    let reachedSubC = false;
-    let reachedSubAnon = false;
-
     const channelA = supabaseA.channel(`rt-products-A-${Date.now()}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products', filter: `store_id=eq.${storeA_id}` }, () => { eventsA++; });
     const channelC = supabaseC.channel(`rt-products-C-${Date.now()}`)
@@ -580,66 +576,105 @@ async function main() {
     const channelAnon = supabaseAnon.channel(`rt-products-Anon-${Date.now()}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'products', filter: `store_id=eq.${storeA_id}` }, () => { eventsAnon++; });
 
-    const subscribeWithStatus = (ch, onSubscribed) => new Promise((resolve) => {
-      const tm = setTimeout(() => resolve(false), 5000);
+    const subscribeWithTracking = (ch) => new Promise((resolve) => {
+      const startTime = Date.now();
+      let settled = false;
+      const tm = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          resolve({ status: 'TIMED_OUT', durationMs: Date.now() - startTime });
+        }
+      }, 10000);
+
       ch.subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          onSubscribed();
+        if (!settled && (status === 'SUBSCRIBED' || status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT')) {
+          settled = true;
           clearTimeout(tm);
-          resolve(true);
+          resolve({ status, durationMs: Date.now() - startTime });
         }
       });
     });
 
-    await Promise.all([
-      subscribeWithStatus(channelA, () => { reachedSubA = true; }),
-      subscribeWithStatus(channelC, () => { reachedSubC = true; }),
-      subscribeWithStatus(channelAnon, () => { reachedSubAnon = true; }),
+    const [trackA, trackC, trackAnon] = await Promise.all([
+      subscribeWithTracking(channelA),
+      subscribeWithTracking(channelC),
+      subscribeWithTracking(channelAnon),
     ]);
 
-    // A modifica el precio del producto 1
-    await supabaseA.from('products').update({ sale_price: 11.00 }).eq('id', prod1.id);
+    const channelStatusDetail = `Canales: A=${trackA.status}(${trackA.durationMs}ms), C=${trackC.status}(${trackC.durationMs}ms), Anon=${trackAnon.status}(${trackAnon.durationMs}ms)`;
 
-    // Esperar hasta 8 segundos para captura de eventos
-    await new Promise(r => setTimeout(r, 8000));
-
-    // Limpiar canales realtime
-    await supabaseA.removeChannel(channelA);
-    await supabaseC.removeChannel(channelC);
-    await supabaseAnon.removeChannel(channelAnon);
-
-    if (!reachedSubC || !reachedSubAnon) {
+    if (trackA.status !== 'SUBSCRIBED') {
+      await supabaseA.removeChannel(channelA);
+      await supabaseC.removeChannel(channelC);
+      await supabaseAnon.removeChannel(channelAnon);
+      recordResult(
+        'SEG-20.1',
+        'Realtime postgres_changes products: Control positivo de A',
+        'Canal A en estado SUBSCRIBED',
+        'INCONCLUSO',
+        `Canal de A no alcanzó estado SUBSCRIBED (estado: ${trackA.status}, tiempo: ${trackA.durationMs}ms). ${channelStatusDetail}`
+      );
+    } else if (trackC.status !== 'SUBSCRIBED' || trackAnon.status !== 'SUBSCRIBED') {
+      await supabaseA.removeChannel(channelA);
+      await supabaseC.removeChannel(channelC);
+      await supabaseAnon.removeChannel(channelAnon);
       recordResult(
         'SEG-20.1',
         'Realtime postgres_changes products: C y Anon se suscriben para verificar aislamiento',
         'Canales C y Anon en estado SUBSCRIBED',
         'INCONCLUSO',
-        `No todos los canales alcanzaron SUBSCRIBED (A=${reachedSubA ? 'SUBSCRIBED' : 'FAIL'}, C=${reachedSubC ? 'SUBSCRIBED' : 'FAIL'}, Anon=${reachedSubAnon ? 'SUBSCRIBED' : 'FAIL'})`
-      );
-    } else if (eventsA > 0 && eventsC === 0 && eventsAnon === 0) {
-      recordResult(
-        'SEG-20.1',
-        'Realtime postgres_changes products: A recibe evento, C y Anon reciben 0',
-        'A recibe > 0, C = 0, Anon = 0',
-        'PASA',
-        `Eventos recibidos: A=${eventsA}, C=${eventsC}, Anon=${eventsAnon}. Aislamiento verificado en Realtime.`
-      );
-    } else if (eventsA === 0) {
-      recordResult(
-        'SEG-20.1',
-        'Realtime postgres_changes products: Control positivo de A',
-        'A recibe > 0',
-        'INCONCLUSO',
-        'Realtime no disponible en el entorno o la tabla products no está en publicación activa.'
+        `Canales C o Anon no alcanzaron estado SUBSCRIBED. ${channelStatusDetail}`
       );
     } else {
-      recordResult(
-        'SEG-20.1',
-        'Realtime postgres_changes products: Fuga a no-miembro o anónimo',
-        'C = 0 y Anon = 0',
-        'FALLA',
-        `¡Fuga de Realtime! Eventos: A=${eventsA}, C=${eventsC}, Anon=${eventsAnon}`
-      );
+      // Tras la suscripción espera 2 s antes de modificar nada
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Hasta 3 modificaciones del producto (precios distintos: 11, 12, 13),
+      // con 4 s de espera entre ellas; detente apenas A reciba >= 1 evento.
+      const testPrices = [11.00, 12.00, 13.00];
+      let updateAttempts = 0;
+      for (const price of testPrices) {
+        updateAttempts++;
+        await supabaseA.from('products').update({ sale_price: price }).eq('id', prod1.id);
+        await new Promise(r => setTimeout(r, 4000));
+        if (eventsA >= 1) {
+          break;
+        }
+      }
+
+      // Tras la última modificación espera 8 s antes de contar
+      await new Promise(r => setTimeout(r, 8000));
+
+      // Limpiar canales realtime
+      await supabaseA.removeChannel(channelA);
+      await supabaseC.removeChannel(channelC);
+      await supabaseAnon.removeChannel(channelAnon);
+
+      if (eventsC > 0 || eventsAnon > 0) {
+        recordResult(
+          'SEG-20.1',
+          'Realtime postgres_changes products: Fuga a no-miembro o anónimo',
+          'C = 0 y Anon = 0',
+          'FALLA',
+          `¡Fuga de Realtime! Eventos: A=${eventsA}, C=${eventsC}, Anon=${eventsAnon}. ${channelStatusDetail}`
+        );
+      } else if (eventsA > 0) {
+        recordResult(
+          'SEG-20.1',
+          'Realtime postgres_changes products: A recibe evento, C y Anon reciben 0',
+          'A recibe > 0, C = 0, Anon = 0',
+          'PASA',
+          `Ev: A=${eventsA}, C=${eventsC}, Anon=${eventsAnon} (mod: ${updateAttempts}). ${channelStatusDetail}`
+        );
+      } else {
+        recordResult(
+          'SEG-20.1',
+          'Realtime postgres_changes products: Control positivo de A',
+          'A recibe > 0',
+          'INCONCLUSO',
+          `A no recibió eventos tras ${updateAttempts} intentos de modificación. ${channelStatusDetail}. Realtime no disponible en el entorno o la tabla products no está en publicación activa.`
+        );
+      }
     }
 
     // --- ALTA DE MIEMBROS POR FLUJO REAL ---

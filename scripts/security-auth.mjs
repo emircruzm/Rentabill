@@ -19,6 +19,7 @@
 import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { createClient } from '@supabase/supabase-js';
+import { isPasswordValid } from '../src/shared/utils/passwordPolicy.ts';
 
 // ============================================================================
 // 1. Helpers y Enmascaramiento
@@ -94,6 +95,7 @@ async function main() {
   const isBruteForceMode = process.argv.includes('--fuerza-bruta');
   const isBruteForceExtended = process.argv.includes('--fuerza-bruta-extendida');
   const isSolo10 = process.argv.includes('--solo-10');
+  const isVerificarFixes = process.argv.includes('--verificar-fixes');
 
   // Validación de variables de entorno
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -113,6 +115,16 @@ async function main() {
     process.exit(1);
   }
 
+  // Validación previa obligatoria de la contraseña de C según política H-15
+  if (!isPasswordValid(TEST_USER_C_PASSWORD)) {
+    console.error('\n' + '!'.repeat(80));
+    console.error('🚨 ABORTO DE SEGURIDAD: TEST_USER_C_PASSWORD no cumple la nueva política de contraseñas.');
+    console.error('   Debe tener al menos 10 caracteres, incluir letra y dígito, y <= 72 bytes.');
+    console.error('   Por favor actualiza la contraseña de Usuario C antes de ejecutar este script.');
+    console.error('!'.repeat(80) + '\n');
+    process.exit(1);
+  }
+
   const clientOptions = {
     auth: {
       persistSession: false,
@@ -121,6 +133,378 @@ async function main() {
   };
 
   const supabaseAnon = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
+
+  // Helper para generar contraseñas temporales que cumplen la política (>= 12 caracteres con letras y números)
+  function generateCompliantPassword() {
+    const letters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const digits = '0123456789';
+    let pass = '';
+    for (let i = 0; i < 6; i++) pass += letters[crypto.randomInt(0, letters.length)];
+    for (let i = 0; i < 6; i++) pass += digits[crypto.randomInt(0, digits.length)];
+    return pass + crypto.randomBytes(4).toString('hex');
+  }
+
+  // Helper compartido para restaurar la contraseña original de C de manera garantizada
+  async function restoreUserCPassword(currentPassword) {
+    let restoredPassword = currentPassword;
+    if (restoredPassword !== TEST_USER_C_PASSWORD) {
+      console.log('\n[Restauración] Restaurando contraseña original de Usuario C...');
+      const clientRestore = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
+      const { error: errLoginKnown } = await clientRestore.auth.signInWithPassword({
+        email: TEST_USER_C_EMAIL,
+        password: restoredPassword,
+      });
+
+      if (!errLoginKnown) {
+        const { error: errRestWithCurrent } = await clientRestore.auth.updateUser({
+          password: TEST_USER_C_PASSWORD,
+          current_password: restoredPassword,
+        });
+
+        if (!errRestWithCurrent) {
+          restoredPassword = TEST_USER_C_PASSWORD;
+        } else {
+          console.warn(`   Aviso con current_password (${errRestWithCurrent.code || errRestWithCurrent.message}), reintentando sin ella...`);
+          const { error: errRestFallback } = await clientRestore.auth.updateUser({
+            password: TEST_USER_C_PASSWORD,
+          });
+          if (!errRestFallback) {
+            restoredPassword = TEST_USER_C_PASSWORD;
+          } else {
+            console.error(`   Error en fallback sin current_password: ${errRestFallback.code || errRestFallback.message}`);
+          }
+        }
+      } else {
+        console.error(`   Error iniciando sesión con knownPassword: ${errLoginKnown.code || errLoginKnown.message}`);
+      }
+    }
+
+    // Confirmar que la contraseña original vuelve a funcionar
+    const clientCheck = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
+    const { data: checkOrig, error: errCheckOrig } = await clientCheck.auth.signInWithPassword({
+      email: TEST_USER_C_EMAIL,
+      password: TEST_USER_C_PASSWORD,
+    });
+
+    if (!errCheckOrig && checkOrig?.user) {
+      console.log('✅ Contraseña original de Usuario C confirmada y operativa.');
+      return true;
+    } else {
+      console.error('\n' + '!'.repeat(80));
+      console.error('🚨 CONTRASEÑA DE C NO RESTAURADA');
+      console.error('!'.repeat(80) + '\n');
+      return false;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // MODO VERIFICAR FIXES (--verificar-fixes) - H-11, H-13, H-15
+  // --------------------------------------------------------------------------
+  if (isVerificarFixes) {
+    console.log('\n⚠️ ADVERTENCIA: Cambia varias veces la contraseña de C y la restaura; requiere \'Password changed\' apagada y \'Require current password\' encendida.\n');
+    console.log('🛡️ [FIXES] Verificación de arreglos de seguridad (H-11, H-13, H-15)...');
+
+    // Validación previa obligatoria de la contraseña actual de C
+    if (!isPasswordValid(TEST_USER_C_PASSWORD)) {
+      console.error('\n' + '!'.repeat(80));
+      console.error('🚨 ABORTO DE SEGURIDAD: TEST_USER_C_PASSWORD no cumple la nueva política de contraseñas.');
+      console.error('   Debe tener al menos 10 caracteres, incluir letra y dígito, y <= 72 bytes.');
+      console.error('   Por favor actualiza la contraseña de Usuario C antes de ejecutar esta verificación.');
+      console.error('!'.repeat(80) + '\n');
+      process.exit(1);
+    }
+
+    // Iniciar sesión legítima con C
+    const clientC = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
+    const { data: authInit, error: errAuthInit } = await clientC.auth.signInWithPassword({
+      email: TEST_USER_C_EMAIL,
+      password: TEST_USER_C_PASSWORD,
+    });
+
+    if (errAuthInit || !authInit?.session) {
+      console.error('❌ Error fatal autenticando a Usuario C para verificar fixes:', errAuthInit?.message);
+      process.exit(1);
+    }
+
+    console.log(`✅ Usuario C autenticado correctamente: ${shortId(authInit.user.id)}`);
+
+    // Helper para detectar si un error indica requerimiento o fallo de contraseña actual
+    function indicatesCurrentPassword(err) {
+      if (!err) return false;
+      const code = String(err.code || err.error_code || '').toLowerCase();
+      const msg = String(err.message || '').toLowerCase();
+      return (
+        code.includes('current_password') ||
+        code.includes('reauthentication') ||
+        code.includes('invalid_credentials') ||
+        code.includes('same_password') ||
+        msg.includes('current_password') ||
+        msg.includes('current password') ||
+        msg.includes('reauthenticat') ||
+        msg.includes('re-authenticat')
+      );
+    }
+
+    // Seguimiento dinámico de la contraseña real de C
+    let knownPassword = TEST_USER_C_PASSWORD;
+
+    try {
+      // 1. updateUser({ password }) SIN current_password -> debe ser RECHAZADO indicando contraseña actual
+      console.log('\n[1/5] Prueba 1: updateUser SIN current_password...');
+      const dummyNewPass1 = generateCompliantPassword();
+      const { data: res1, error: err1 } = await clientC.auth.updateUser({
+        password: dummyNewPass1,
+      });
+
+      if (!err1) {
+        knownPassword = dummyNewPass1;
+        recordResult(
+          'FIX-H11.1',
+          'updateUser({ password }) SIN current_password',
+          'Rechazado por el servidor requiriendo contraseña actual',
+          'FALLA',
+          "la opción 'Require current password' parece apagada"
+        );
+      } else if (indicatesCurrentPassword(err1)) {
+        recordResult(
+          'FIX-H11.1',
+          'updateUser({ password }) SIN current_password',
+          'Rechazado por el servidor requiriendo contraseña actual',
+          'PASA',
+          `Rechazado correctamente: code="${err1.code || ''}", status=${err1.status || 'N/A'}, mensaje="${err1.message}"`
+        );
+      } else {
+        recordResult(
+          'FIX-H11.1',
+          'updateUser({ password }) SIN current_password',
+          'Rechazado por el servidor requiriendo contraseña actual',
+          'OBSERVACIÓN',
+          `Error no esperado: code="${err1.code || ''}", status=${err1.status || 'N/A'}, mensaje="${err1.message}"`
+        );
+      }
+
+      // 2. updateUser({ password, current_password }) con current_password ERRÓNEA -> RECHAZADO indicando contraseña actual
+      console.log('\n[2/5] Prueba 2: updateUser con current_password ERRÓNEA...');
+      const dummyNewPass2 = generateCompliantPassword();
+      const wrongCurrentPass = `WrongCurrent_${crypto.randomBytes(6).toString('hex')}!`;
+      const { data: res2, error: err2 } = await clientC.auth.updateUser({
+        password: dummyNewPass2,
+        current_password: wrongCurrentPass,
+      });
+
+      if (!err2) {
+        knownPassword = dummyNewPass2;
+        recordResult(
+          'FIX-H11.2',
+          'updateUser con current_password ERRÓNEA',
+          'Rechazado por el servidor indicando contraseña actual inválida',
+          'FALLA',
+          "la opción 'Require current password' parece apagada"
+        );
+      } else if (indicatesCurrentPassword(err2)) {
+        recordResult(
+          'FIX-H11.2',
+          'updateUser con current_password ERRÓNEA',
+          'Rechazado por el servidor indicando contraseña actual inválida',
+          'PASA',
+          `Rechazado correctamente: code="${err2.code || ''}", status=${err2.status || 'N/A'}, mensaje="${err2.message}"`
+        );
+      } else {
+        recordResult(
+          'FIX-H11.2',
+          'updateUser con current_password ERRÓNEA',
+          'Rechazado por el servidor indicando contraseña actual inválida',
+          'OBSERVACIÓN',
+          `Error no esperado: code="${err2.code || ''}", status=${err2.status || 'N/A'}, mensaje="${err2.message}"`
+        );
+      }
+
+      // 3. updateUser con current_password correcta y nueva contraseña válida -> OK, luego restaurar
+      console.log('\n[3/5] Prueba 3: updateUser con current_password correcta y nueva contraseña válida...');
+      const validTempPass = generateCompliantPassword();
+      const { data: res3, error: err3 } = await clientC.auth.updateUser({
+        password: validTempPass,
+        current_password: knownPassword,
+      });
+
+      const test3Ok = !err3 && Boolean(res3?.user);
+      if (test3Ok) {
+        knownPassword = validTempPass;
+      }
+      recordResult(
+        'FIX-H11.3',
+        'updateUser con current_password correcta y nueva contraseña válida',
+        'Aceptado por el servidor',
+        test3Ok ? 'PASA' : 'FALLA',
+        test3Ok
+          ? 'Contraseña actualizada con éxito validando current_password'
+          : `Fallo al actualizar: code="${err3?.code || ''}", status=${err3?.status || 'N/A'}, mensaje="${err3?.message}"`
+      );
+
+      // Restaurar inmediatamente la original con la temporal como current_password
+      if (knownPassword === validTempPass) {
+        const { error: errRest3 } = await clientC.auth.updateUser({
+          password: TEST_USER_C_PASSWORD,
+          current_password: knownPassword,
+        });
+        if (!errRest3) {
+          knownPassword = TEST_USER_C_PASSWORD;
+          console.log('   Restauración intermedia exitosa de la contraseña original.');
+        } else {
+          console.error(`   Aviso en restauración intermedia: code="${errRest3.code || ''}", mensaje="${errRest3.message}"`);
+        }
+      }
+
+      // 4. Contraseña débil (9 caracteres y 10 solo dígitos) -> RECHAZADA con error.code === 'weak_password'
+      console.log('\n[4/5] Prueba 4: Contraseña débil rechazada por el servidor (política H-15)...');
+      // 4a. 9 caracteres
+      const weak9 = 'Abc123456';
+      const { data: res4a, error: err4a } = await clientC.auth.updateUser({
+        password: weak9,
+        current_password: knownPassword,
+      });
+      if (!err4a && res4a?.user) {
+        knownPassword = weak9;
+      }
+
+      // 4b. 10 solo dígitos
+      const weak10Digits = '1234567890';
+      const { data: res4b, error: err4b } = await clientC.auth.updateUser({
+        password: weak10Digits,
+        current_password: knownPassword,
+      });
+      if (!err4b && res4b?.user) {
+        knownPassword = weak10Digits;
+      }
+
+      if (!err4a || !err4b) {
+        recordResult(
+          'FIX-H15',
+          'Contraseñas débiles (9 caracteres y 10 solo dígitos) rechazadas por servidor',
+          'Rechazadas con error.code === "weak_password"',
+          'FALLA',
+          `El servidor aceptó contraseñas débiles (aceptó 9 chars: ${!err4a}, aceptó 10 dígitos: ${!err4b})`
+        );
+      } else {
+        const code4a = err4a.code || err4a.error_code || '';
+        const code4b = err4b.code || err4b.error_code || '';
+        if (code4a === 'weak_password' && code4b === 'weak_password') {
+          recordResult(
+            'FIX-H15',
+            'Contraseñas débiles (9 caracteres y 10 solo dígitos) rechazadas por servidor',
+            'Rechazadas con error.code === "weak_password"',
+            'PASA',
+            `Ambas rechazadas correctamente con code="weak_password" (4a: "${err4a.message}", 4b: "${err4b.message}")`
+          );
+        } else {
+          recordResult(
+            'FIX-H15',
+            'Contraseñas débiles (9 caracteres y 10 solo dígitos) rechazadas por servidor',
+            'Rechazadas con error.code === "weak_password"',
+            'OBSERVACIÓN',
+            `Rechazadas con códigos distintos de "weak_password" (4a: code="${code4a}", status=${err4a.status || 'N/A'}; 4b: code="${code4b}", status=${err4b.status || 'N/A'})`
+          );
+        }
+      }
+
+      // 5. Dos sesiones de C: cambiar contraseña en sesión 1 y signOut scope 'others' -> sesión 2 no puede renovar
+      console.log('\n[5/5] Prueba 5: Cierre de otras sesiones (H-13 signOut scope others)...');
+      const clientSession1 = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
+      const clientSession2 = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
+
+      const { data: s1Auth, error: errS1Login } = await clientSession1.auth.signInWithPassword({
+        email: TEST_USER_C_EMAIL,
+        password: knownPassword,
+      });
+      const { data: s2Auth, error: errS2Login } = await clientSession2.auth.signInWithPassword({
+        email: TEST_USER_C_EMAIL,
+        password: knownPassword,
+      });
+
+      if (errS1Login || !s1Auth?.session || errS2Login || !s2Auth?.session) {
+        recordResult(
+          'FIX-H13',
+          'Cierre de otras sesiones con signOut({ scope: "others" })',
+          'Sesión 2 revocada y sesión 1 válida',
+          'INCONCLUSO',
+          `No se pudieron iniciar las dos sesiones de prueba (s1: ${errS1Login?.message || 'sin sesión'}, s2: ${errS2Login?.message || 'sin sesión'})`
+        );
+      } else {
+        const s2AccessToken = s2Auth.session.access_token;
+        const s2RefreshToken = s2Auth.session.refresh_token;
+
+        // Control previo: sesión 2 válida (getUser sin error)
+        const { data: userS2Before, error: errUserS2Before } = await clientSession2.auth.getUser(s2AccessToken);
+        if (errUserS2Before || !userS2Before?.user) {
+          recordResult(
+            'FIX-H13',
+            'Cierre de otras sesiones con signOut({ scope: "others" })',
+            'Sesión 2 revocada y sesión 1 válida',
+            'INCONCLUSO',
+            `Control previo falló: la sesión 2 no es válida antes de iniciar la prueba (${errUserS2Before?.message || 'sin usuario'})`
+          );
+        } else {
+          // Cambiar contraseña en sesión 1
+          const tempPass5 = generateCompliantPassword();
+          const { data: updateRes5, error: errPass5 } = await clientSession1.auth.updateUser({
+            password: tempPass5,
+            current_password: knownPassword,
+          });
+
+          if (errPass5) {
+            recordResult(
+              'FIX-H13',
+              'Cierre de otras sesiones con signOut({ scope: "others" })',
+              'Sesión 2 revocada y sesión 1 válida',
+              'INCONCLUSO',
+              `Fallo al cambiar contraseña en sesión 1: code="${errPass5.code || ''}", status=${errPass5.status || 'N/A'}, mensaje="${errPass5.message}"`
+            );
+          } else {
+            knownPassword = tempPass5;
+
+            // Cerrar otras sesiones
+            await clientSession1.auth.signOut({ scope: 'others' });
+
+            // Control posterior 1: sesión 1 sigue válida (getUser sin error)
+            const tokenS1 = updateRes5?.session?.access_token || s1Auth.session.access_token;
+            const { data: userS1After, error: errUserS1After } = await clientSession1.auth.getUser(tokenS1);
+            const s1StillValid = !errUserS1After && Boolean(userS1After?.user);
+
+            // Control posterior 2: sesión 2 intenta renovar su token -> debe fallar
+            const { data: s2RefreshTry, error: errS2Refresh } = await clientSession2.auth.refreshSession({
+              refresh_token: s2RefreshToken,
+            });
+            const s2RenewFailed = Boolean(errS2Refresh) || !s2RefreshTry?.session;
+
+            if (s2RenewFailed && s1StillValid) {
+              recordResult(
+                'FIX-H13',
+                'Cierre de otras sesiones con signOut({ scope: "others" })',
+                'Sesión 2 revocada y sesión 1 válida',
+                'PASA',
+                `Sesión 2 revocada correctamente (fallo de renovación: "${errS2Refresh?.message || 'sin sesión'}") y sesión 1 permanece válida`
+              );
+            } else {
+              recordResult(
+                'FIX-H13',
+                'Cierre de otras sesiones con signOut({ scope: "others" })',
+                'Sesión 2 revocada y sesión 1 válida',
+                'FALLA',
+                `Fallo en verificación: sesión 2 renovó=${!s2RenewFailed}, sesión 1 válida=${s1StillValid}`
+              );
+            }
+          }
+        }
+      }
+
+    } finally {
+      // RESTAURACIÓN GARANTIZADA DE LA CONTRASEÑA ORIGINAL DE C
+      await restoreUserCPassword(knownPassword);
+    }
+
+    printSummary();
+    return;
+  }
 
   // --------------------------------------------------------------------------
   // MODO SOLO FUERZA BRUTA (--fuerza-bruta)
@@ -694,39 +1078,41 @@ async function main() {
 
   // --- [3/4] SEG-12: Cambio de contraseña con sesión concurrente ---
   console.log('\n[3/4] SEG-12 — Cambio de contraseña con sesión concurrente y restauración...');
+  console.log('   (Requiere notificación "Password changed" apagada y "Require current password" activada en Supabase Auth)\n');
 
   const clientSession1 = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
   const clientSession2 = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
 
-  let tempPassword = null;
-  let passwordRestored = false;
+  let knownPasswordSeg12 = TEST_USER_C_PASSWORD;
 
   try {
     // Iniciar ambas sesiones con Usuario C
     const { data: s1Auth, error: errS1 } = await clientSession1.auth.signInWithPassword({
       email: TEST_USER_C_EMAIL,
-      password: TEST_USER_C_PASSWORD,
+      password: knownPasswordSeg12,
     });
     const { data: s2Auth, error: errS2 } = await clientSession2.auth.signInWithPassword({
       email: TEST_USER_C_EMAIL,
-      password: TEST_USER_C_PASSWORD,
+      password: knownPasswordSeg12,
     });
 
     if (errS1 || errS2 || !s1Auth?.session || !s2Auth?.session) {
       throw new Error(`Error abriendo sesiones concurrentes: ${errS1?.message || errS2?.message}`);
     }
 
-    // Generar contraseña temporal segura
-    tempPassword = `TmpSec_${crypto.randomBytes(8).toString('hex')}!2026`;
+    // Generar contraseña temporal segura que cumple la política (>= 12 caracteres con letras y números)
+    const tempPassword = generateCompliantPassword();
 
-    // Cambiar contraseña en sesión 1
+    // Cambiar contraseña en sesión 1 enviando current_password
     const { error: errChangePw } = await clientSession1.auth.updateUser({
       password: tempPassword,
+      current_password: knownPasswordSeg12,
     });
 
     if (errChangePw) {
-      throw new Error(`Error cambiando contraseña a temporal: ${errChangePw.message}`);
+      throw new Error(`Error cambiando contraseña a temporal: ${errChangePw.code || errChangePw.message}`);
     }
+    knownPasswordSeg12 = tempPassword;
 
     // 1. Contraseña vieja ya no debe servir
     const { data: oldTry, error: errOldTry } = await supabaseAnon.auth.signInWithPassword({
@@ -745,7 +1131,7 @@ async function main() {
     // 2. Contraseña nueva sí sirve
     const { data: newTry, error: errNewTry } = await supabaseAnon.auth.signInWithPassword({
       email: TEST_USER_C_EMAIL,
-      password: tempPassword,
+      password: knownPasswordSeg12,
     });
     const newAccepted = !errNewTry && newTry?.user;
     recordResult(
@@ -763,49 +1149,14 @@ async function main() {
     recordResult(
       'SEG-12.3',
       'Estado de sesión concurrente preexistente (Sesión 2)',
-      'Registro de vigencia de sesión abierta',
+      'Registro de vigencia de sesión abierta (notificación "Password changed" debe estar apagada en Supabase)',
       'OBSERVACIÓN',
-      `Sesión concurrente 2 sigue activa: ${s2StillActive ? 'SÍ (comportamiento esperado de JWT stateless sin revocación forzada)' : `NO (revocada: ${errS2Profile?.message})`}`
+      `Sesión concurrente 2 sigue activa: ${s2StillActive ? 'SÍ (comportamiento esperado de JWT stateless sin revocación forzada)' : `NO (revocada: ${errS2Profile?.message})`}. Notificación 'Password changed' debe permanecer apagada en el panel de Supabase.`
     );
 
   } finally {
-    // RESTAURACIÓN OBLIGATORIA DE LA CONTRASEÑA ORIGINAL
-    console.log('\n[Restauración] Restaurando contraseña original de Usuario C...');
-
-    // Intentar restaurar desde sesión 1
-    let { error: errRestore } = await clientSession1.auth.updateUser({
-      password: TEST_USER_C_PASSWORD,
-    });
-
-    // Si falló sesión 1, iniciar sesión con la temporal y restaurar
-    if (errRestore && tempPassword) {
-      const clientFallback = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
-      const { error: errFallLogin } = await clientFallback.auth.signInWithPassword({
-        email: TEST_USER_C_EMAIL,
-        password: tempPassword,
-      });
-      if (!errFallLogin) {
-        const { error: errFallUpdate } = await clientFallback.auth.updateUser({
-          password: TEST_USER_C_PASSWORD,
-        });
-        errRestore = errFallUpdate;
-      }
-    }
-
-    // Confirmar que la contraseña original vuelve a funcionar
-    const { data: checkOrig, error: errCheckOrig } = await supabaseAnon.auth.signInWithPassword({
-      email: TEST_USER_C_EMAIL,
-      password: TEST_USER_C_PASSWORD,
-    });
-
-    if (!errCheckOrig && checkOrig?.user) {
-      passwordRestored = true;
-      console.log('✅ Contraseña original de Usuario C restaurada y verificada exitosamente.');
-    } else {
-      console.error('\n' + '!'.repeat(80));
-      console.error('🚨 CONTRASEÑA DE C NO RESTAURADA 🚨');
-      console.error('!'.repeat(80) + '\n');
-    }
+    // RESTAURACIÓN OBLIGATORIA Y GARANTIZADA DE LA CONTRASEÑA ORIGINAL
+    await restoreUserCPassword(knownPasswordSeg12);
   }
 
   // --- [4/4] SEG-08: Enumeración de usuarios ---

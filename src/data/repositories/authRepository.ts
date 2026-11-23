@@ -24,8 +24,18 @@ export const authRepository = {
     return supabase.auth.signOut();
   },
 
-  async updatePassword(newPassword: string) {
-    return supabase.auth.updateUser({ password: newPassword });
+  async signOutOthers() {
+    return supabase.auth.signOut({ scope: 'others' });
+  },
+
+  async updatePassword(newPassword: string, currentPassword?: string) {
+    const attributes: { password: string; current_password?: string } = {
+      password: newPassword,
+    };
+    if (currentPassword) {
+      attributes.current_password = currentPassword;
+    }
+    return supabase.auth.updateUser(attributes);
   },
 
   async setSessionFromTokens(accessToken: string, refreshToken: string) {

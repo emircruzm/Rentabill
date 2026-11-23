@@ -1,9 +1,12 @@
+import { PASSWORD_POLICY_MESSAGE } from '../utils/passwordPolicy';
+
 /**
  * Helper to translate Supabase Auth and Database errors into friendly Spanish messages.
  */
 export function formatAuthError(error: any): string {
   if (!error) return 'Ocurrió un error inesperado. Inténtalo de nuevo.';
   const msg = typeof error === 'string' ? error : error.message || '';
+  const code = typeof error === 'object' && error !== null ? (error.code || error.error_code || '') : '';
 
   if (msg.includes('Invalid login credentials') || msg.includes('invalid_grant')) {
     return 'Correo o contraseña incorrectos. Por favor verifica tus datos.';
@@ -18,9 +21,11 @@ export function formatAuthError(error: any): string {
     msg.includes('Password should be at least') ||
     msg.includes('weak_password') ||
     msg.includes('at least 6 characters') ||
-    msg.includes('at least 8 characters')
+    msg.includes('at least 8 characters') ||
+    msg.includes('at least 10 characters') ||
+    code === 'weak_password'
   ) {
-    return 'La contraseña es muy corta. Debe tener al menos 8 caracteres.';
+    return PASSWORD_POLICY_MESSAGE;
   }
   if (
     msg.includes('invalid email') ||
