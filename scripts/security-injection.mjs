@@ -18,6 +18,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { escapeLikePattern, pickExactIgnoreCase } from '../src/shared/utils/likeEscape.ts';
 
 // ============================================================================
 // 1. Constantes y Guardas de Seguridad
@@ -227,15 +228,17 @@ async function main() {
     );
     const categoryA_id = catA?.id;
 
-    await callTracked(() =>
-      supabaseA.from('categories').insert({ store_id: storeA_id, name: 'Bebidas' })
+    // Crear categorías en A: Bebidas, 100%, A_B, Z, A*
+    const { data: createdCatsA } = await callTracked(() =>
+      supabaseA.from('categories').insert([
+        { store_id: storeA_id, name: 'Bebidas' },
+        { store_id: storeA_id, name: '100%' },
+        { store_id: storeA_id, name: 'A_B' },
+        { store_id: storeA_id, name: 'Z' },
+        { store_id: storeA_id, name: 'A*' },
+      ]).select('id, name')
     );
-
-    // PASO 2: Categoría de UN carácter ("Z") para probar '_'
-    const { data: catZ } = await callTracked(() =>
-      supabaseA.from('categories').insert({ store_id: storeA_id, name: 'Z' }).select('id, name').single()
-    );
-    singleCharCat = catZ;
+    singleCharCat = createdCatsA?.find(c => c.name === 'Z') || { name: 'Z' };
 
     // Categoría en B
     const { data: catB } = await callTracked(() =>
@@ -355,6 +358,77 @@ async function main() {
         recordResult(code, `Filtro categories .ilike con carga "${p.label}"`, 'Sin 5xx, datos aislados', 'PASA',
           `Filas devueltas: ${data?.length || 0}. Sin errores 5xx ni fuga de B.`);
       }
+    }
+
+    // SEG-21.FIX: Mitigación en cliente con escapeLikePattern y pickExactIgnoreCase (H-03)
+    console.log('\n  [SEG-21.FIX] Verificación de mitigación en cliente (escapeLikePattern + pickExactIgnoreCase)...');
+    const fixTests = [
+      {
+        code: 'SEG-21.FIX.minusculas',
+        desc: 'Búsqueda "bebidas" en minúsculas encuentra "Bebidas"',
+        term: 'bebidas',
+        expectedMatch: 'Bebidas',
+      },
+      {
+        code: 'SEG-21.FIX.pct',
+        desc: 'Búsqueda con "%" no encuentra nada (escapado como literal "\\%")',
+        term: '%',
+        expectedMatch: null,
+      },
+      {
+        code: 'SEG-21.FIX.guion_bajo',
+        desc: 'Búsqueda con "_" no encuentra "Z" (escapado como literal "\\_")',
+        term: '_',
+        expectedMatch: null,
+      },
+      {
+        code: 'SEG-21.FIX.asterisco',
+        desc: 'Búsqueda con "*" no encuentra nada (descartado por pickExactIgnoreCase)',
+        term: '*',
+        expectedMatch: null,
+      },
+      {
+        code: 'SEG-21.FIX.cien_porciento',
+        desc: 'Búsqueda "100%" encuentra solo "100%"',
+        term: '100%',
+        expectedMatch: '100%',
+      },
+      {
+        code: 'SEG-21.FIX.a_guion_b',
+        desc: 'Búsqueda "A_B" encuentra solo "A_B"',
+        term: 'A_B',
+        expectedMatch: 'A_B',
+      },
+      {
+        code: 'SEG-21.FIX.a_asterisco',
+        desc: 'Búsqueda "A*" encuentra solo "A*"',
+        term: 'A*',
+        expectedMatch: 'A*',
+      },
+    ];
+
+    for (const ft of fixTests) {
+      const escaped = escapeLikePattern(ft.term.trim());
+      const { data: rows, error, status } = await callTracked(() =>
+        supabaseA.from('categories').select('id, name, store_id').eq('store_id', storeA_id).ilike('name', escaped)
+      );
+
+      const is5xx = (status >= 500) || (error?.code && String(error.code).startsWith('5'));
+      const leakedB = rows?.some(r => r.store_id === storeB_id);
+      const matched = (!error && rows) ? pickExactIgnoreCase(rows, r => r.name, ft.term) : null;
+
+      const passed = !is5xx && !leakedB && (
+        (ft.expectedMatch === null && matched === null) ||
+        (ft.expectedMatch !== null && matched?.name === ft.expectedMatch)
+      );
+
+      recordResult(
+        ft.code,
+        ft.desc,
+        ft.expectedMatch ? `Encuentra exactamente "${ft.expectedMatch}" sin fuga de B` : 'No encuentra nada (null) sin fuga de B',
+        passed ? 'PASA' : 'FALLA',
+        `Filas BD: ${rows?.length || 0}, Coincidencia cliente: ${matched ? `"${matched.name}"` : 'null'}, Fuga B: ${leakedB}`
+      );
     }
 
     // Control positivo: store_invitations
@@ -1608,10 +1682,13 @@ async function main() {
   console.log(`📄 Textos 1 MB Creados   : ${count1MBTextsCreated} / 3`);
   console.log('-'.repeat(60));
 
+  console.log('\n📌 NOTA H-03: El comportamiento del servidor PostgREST (.ilike directo) sigue interpretando %, _ y * como comodines (CONOCIDO H-03).');
+  console.log('             La corrección y protección efectiva opera en el cliente mediante escapeLikePattern y pickExactIgnoreCase (SEG-21.FIX).\n');
+
   const isSuccess = failCount === 0 && inconclusoCount === 0 && !aborted;
 
   if (isSuccess) {
-    console.log('\n🛡️ VERIFICACIÓN COMPLETADA CON ÉXITO: Los filtros PostgREST, RPCs y validaciones respondieron conforme a diseño.');
+    console.log('🛡️ VERIFICACIÓN COMPLETADA CON ÉXITO: Los filtros PostgREST, RPCs, validaciones y mitigaciones de cliente respondieron conforme a diseño.');
     process.exit(0);
   } else {
     console.error('\n⚠️ SE DETECTARON FALLAS O INCONSISTENCIAS.');
