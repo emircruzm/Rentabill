@@ -50,7 +50,7 @@ const BulkScaleWidget: React.FC<BulkScaleWidgetProps> = ({
     if (raw === '' || /^[0-9]*\.?[0-9]*$/.test(raw)) {
       setTextValue(raw);
       const parsed = parseFloat(raw);
-      if (!isNaN(parsed) && parsed > 0) {
+      if (Number.isFinite(parsed) && parsed > 0) {
         onSetQuantity(parsed);
       } else {
         onSetQuantity(0);
@@ -60,7 +60,7 @@ const BulkScaleWidget: React.FC<BulkScaleWidgetProps> = ({
 
   const handleBlur = () => {
     const parsed = parseFloat(textValue);
-    if (isNaN(parsed) || parsed <= 0) {
+    if (!Number.isFinite(parsed) || parsed <= 0) {
       setTextValue('');
       onSetQuantity(0);
     } else {
@@ -678,7 +678,7 @@ export const POSView: React.FC = () => {
                       setIsExactCash(false);
                     } else {
                       const parsed = parseFloat(raw);
-                      setCustomCash(isNaN(parsed) ? 0 : parsed);
+                      setCustomCash(!Number.isFinite(parsed) ? 0 : parsed);
                       setIsExactCash(false);
                     }
                   }}

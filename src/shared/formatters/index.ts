@@ -5,7 +5,7 @@
  * Ejemplo: 1250.5 -> "S/ 1,250.50"
  */
 export function formatCurrency(amount: number): string {
-  if (isNaN(amount) || amount === null || amount === undefined) {
+  if (amount === null || amount === undefined || !Number.isFinite(amount)) {
     return 'S/ 0.00';
   }
   return new Intl.NumberFormat('es-PE', {

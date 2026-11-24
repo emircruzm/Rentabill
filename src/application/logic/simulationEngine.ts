@@ -45,7 +45,7 @@ export function calculateSimulationMetrics(input: SimulationInput): SimulationRe
 
   const effectiveVelocity = dailyVelocity > 0 ? dailyVelocity : 0.5;
   const rawDays = quantity / effectiveVelocity;
-  const isValidDays = !isNaN(rawDays) && isFinite(rawDays) && rawDays > 0;
+  const isValidDays = Number.isFinite(rawDays) && rawDays > 0;
   const daysToSell = isValidDays ? Math.max(1, Math.round(rawDays)) : 0;
   const dailyProfitGain = isValidDays ? Number((totalProfit / Math.max(1, daysToSell)).toFixed(2)) : 0;
   const scoreGain = Math.min(15, Math.max(1, Math.round(dailyProfitGain * 1.5)));
