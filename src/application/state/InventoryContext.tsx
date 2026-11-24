@@ -2264,7 +2264,7 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             payment_condition: supplierData.paymentCondition,
             credit_days: supplierData.creditDays || 0,
             contact_phone: supplierData.contactPhone,
-            category: supplierData.category,
+            rubro: supplierData.category || 'General',
           });
 
           if (supErr) throw supErr;
