@@ -96,6 +96,22 @@ CASCADE;
 -- 1. TABLAS
 -- ============================================================================
 
+-- Función auxiliar para validación de números finitos (H-17)
+CREATE OR REPLACE FUNCTION public.is_finite_numeric(n NUMERIC)
+RETURNS BOOLEAN
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $$
+    SELECT n IS NOT NULL
+       AND n <> 'NaN'::numeric
+       AND n <> 'Infinity'::numeric
+       AND n <> '-Infinity'::numeric;
+$$;
+
+COMMENT ON FUNCTION public.is_finite_numeric(NUMERIC) IS
+'Devuelve true únicamente si el valor numérico no es NULL ni NaN ni Infinity ni -Infinity.';
+
 -- NOTA sobre borrado de tiendas: las FK con ON DELETE NO ACTION que apuntan a
 -- tablas hijas de stores (products->categories, purchase_items->products,
 -- sales->cash_registers, inventory_movements->purchases) son DEFERRABLE
@@ -190,12 +206,12 @@ CREATE TABLE public.products (
     sku TEXT,                    -- opcional
     name TEXT NOT NULL,
     unit TEXT NOT NULL DEFAULT 'pza' CHECK (unit IN ('pza', 'kg', 'lt', 'caja')),
-    cost_price NUMERIC(12,2) NOT NULL CHECK (cost_price >= 0),
-    sale_price NUMERIC(12,2) NOT NULL CHECK (sale_price >= 0),
-    stock NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (stock >= 0),
-    reorder_point NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (reorder_point >= 0),
+    cost_price NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(cost_price) AND cost_price >= 0),
+    sale_price NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(sale_price) AND sale_price >= 0),
+    stock NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (public.is_finite_numeric(stock) AND stock >= 0),
+    reorder_point NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (public.is_finite_numeric(reorder_point) AND reorder_point >= 0),
     estimated_speed TEXT CHECK (estimated_speed IN ('RAPIDO', 'NORMAL', 'LENTO') OR estimated_speed IS NULL),
-    units_sold NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (units_sold >= 0),
+    units_sold NUMERIC(12,3) NOT NULL DEFAULT 0 CHECK (public.is_finite_numeric(units_sold) AND units_sold >= 0),
     sales_count INTEGER NOT NULL DEFAULT 0 CHECK (sales_count >= 0),
     image_url TEXT,
     archived_at TIMESTAMPTZ DEFAULT NULL,
@@ -220,7 +236,7 @@ CREATE TABLE public.purchases (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     store_id UUID NOT NULL REFERENCES public.stores(id) ON DELETE CASCADE,
     supplier_id UUID,
-    total NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (total >= 0),
+    total NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (public.is_finite_numeric(total) AND total >= 0),
     payment_condition TEXT NOT NULL DEFAULT 'contado' CHECK (payment_condition IN ('contado', 'credito')),
     credit_days INTEGER NOT NULL DEFAULT 0 CHECK (credit_days >= 0),
     -- Fecha limite de pago: dia de la compra (hora de Lima) + dias de credito.
@@ -252,8 +268,8 @@ CREATE TABLE public.purchase_items (
     store_id UUID NOT NULL,
     purchase_id UUID NOT NULL,
     product_id UUID NOT NULL,
-    quantity NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
-    unit_cost NUMERIC(12,2) NOT NULL CHECK (unit_cost >= 0),
+    quantity NUMERIC(12,3) NOT NULL CHECK (public.is_finite_numeric(quantity) AND quantity > 0),
+    unit_cost NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(unit_cost) AND unit_cost >= 0),
     subtotal NUMERIC(12,2) GENERATED ALWAYS AS (ROUND(quantity * unit_cost, 2)) STORED,
     CONSTRAINT fk_purchase_items_purchases_store FOREIGN KEY (store_id, purchase_id)
         REFERENCES public.purchases(store_id, id) ON DELETE CASCADE,
@@ -267,12 +283,12 @@ CREATE TABLE public.sales (
     store_id UUID NOT NULL REFERENCES public.stores(id) ON DELETE CASCADE,
     register_id UUID NOT NULL,
     ticket_number TEXT NOT NULL,
-    total_quantity NUMERIC(12,3) NOT NULL CHECK (total_quantity > 0),
-    total_amount NUMERIC(12,2) NOT NULL CHECK (total_amount >= 0),
-    total_profit NUMERIC(12,2) NOT NULL,
+    total_quantity NUMERIC(12,3) NOT NULL CHECK (public.is_finite_numeric(total_quantity) AND total_quantity > 0),
+    total_amount NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(total_amount) AND total_amount >= 0),
+    total_profit NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(total_profit)),
     payment_method TEXT NOT NULL,
-    cash_given NUMERIC(12,2),
-    change_given NUMERIC(12,2) DEFAULT 0,
+    cash_given NUMERIC(12,2) CHECK (cash_given IS NULL OR (public.is_finite_numeric(cash_given) AND cash_given >= 0)),
+    change_given NUMERIC(12,2) DEFAULT 0 CHECK (change_given IS NULL OR (public.is_finite_numeric(change_given) AND change_given >= 0)),
     cashier_name TEXT NOT NULL,
     user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -297,11 +313,11 @@ CREATE TABLE public.sale_items (
     sale_id UUID NOT NULL,
     product_id UUID,
     product_name TEXT NOT NULL,
-    quantity NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
-    unit_price NUMERIC(12,2) NOT NULL CHECK (unit_price >= 0),
-    unit_cost NUMERIC(12,2) NOT NULL CHECK (unit_cost >= 0),
-    subtotal NUMERIC(12,2) NOT NULL CHECK (subtotal = round(quantity * unit_price, 2)),
-    profit NUMERIC(12,2) NOT NULL CHECK (profit = subtotal - round(quantity * unit_cost, 2)),
+    quantity NUMERIC(12,3) NOT NULL CHECK (public.is_finite_numeric(quantity) AND quantity > 0),
+    unit_price NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(unit_price) AND unit_price >= 0),
+    unit_cost NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(unit_cost) AND unit_cost >= 0),
+    subtotal NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(subtotal) AND subtotal = round(quantity * unit_price, 2)),
+    profit NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(profit) AND profit = subtotal - round(quantity * unit_cost, 2)),
     CONSTRAINT fk_sale_items_sales_store FOREIGN KEY (store_id, sale_id)
         REFERENCES public.sales(store_id, id) ON DELETE CASCADE,
     CONSTRAINT fk_sale_items_products_store FOREIGN KEY (store_id, product_id)
@@ -315,9 +331,9 @@ CREATE TABLE public.inventory_movements (
     product_id UUID,
     product_name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('COMPRA', 'VENTA', 'AJUSTE')),
-    quantity NUMERIC(12,3) NOT NULL,
-    previous_stock NUMERIC(12,3) NOT NULL,
-    new_stock NUMERIC(12,3) NOT NULL,
+    quantity NUMERIC(12,3) NOT NULL CHECK (public.is_finite_numeric(quantity)),
+    previous_stock NUMERIC(12,3) NOT NULL CHECK (public.is_finite_numeric(previous_stock) AND previous_stock >= 0),
+    new_stock NUMERIC(12,3) NOT NULL CHECK (public.is_finite_numeric(new_stock) AND new_stock >= 0),
     sale_id UUID,
     purchase_id UUID,
     supplier_id UUID,
@@ -356,8 +372,8 @@ CREATE TABLE public.simulations (
     product_id UUID,                       -- NULL si es un producto aun no registrado
     product_name TEXT NOT NULL,            -- snapshot del nombre
     supplier_id UUID,
-    quantity NUMERIC(12,3) NOT NULL CHECK (quantity > 0),
-    unit_cost NUMERIC(12,2) NOT NULL CHECK (unit_cost >= 0),
+    quantity NUMERIC(12,3) NOT NULL CHECK (public.is_finite_numeric(quantity) AND quantity > 0),
+    unit_cost NUMERIC(12,2) NOT NULL CHECK (public.is_finite_numeric(unit_cost) AND unit_cost >= 0),
     unit_price NUMERIC(12,2) NOT NULL CHECK (unit_price >= 0),
     payment_condition TEXT NOT NULL CHECK (payment_condition IN ('contado', 'credito')),
     credit_days INTEGER NOT NULL DEFAULT 0 CHECK (credit_days >= 0),
@@ -1019,8 +1035,8 @@ BEGIN
         RAISE EXCEPTION 'El motivo o nota del ajuste es obligatorio' USING ERRCODE = '22023';
     END IF;
 
-    IF p_quantity_delta IS NULL OR p_quantity_delta = 0 THEN
-        RAISE EXCEPTION 'El delta de ajuste no puede ser cero' USING ERRCODE = '22023';
+    IF p_quantity_delta IS NULL OR NOT public.is_finite_numeric(p_quantity_delta) OR p_quantity_delta = 0 THEN
+        RAISE EXCEPTION 'El delta de ajuste debe ser un valor numerico finito distinto de cero' USING ERRCODE = '22023';
     END IF;
 
     SELECT COALESCE(name, 'Usuario') INTO v_actor_name
@@ -1131,6 +1147,7 @@ BEGIN
         FROM jsonb_array_elements(p_items) AS x
         WHERE x->>'productId' IS NULL
            OR x->>'quantity' IS NULL
+           OR NOT public.is_finite_numeric((x->>'quantity')::NUMERIC)
            OR (x->>'quantity')::NUMERIC <= 0
     ) THEN
         RAISE EXCEPTION 'Cada partida debe tener productId y una cantidad mayor a 0' USING ERRCODE = '22023';
@@ -1225,7 +1242,7 @@ BEGIN
     END LOOP;
 
     IF p_payment_method = 'efectivo' THEN
-        IF v_cash_given IS NULL OR v_cash_given < v_total_amount THEN
+        IF v_cash_given IS NULL OR NOT public.is_finite_numeric(v_cash_given) OR v_cash_given < v_total_amount THEN
             RAISE EXCEPTION 'Monto en efectivo insuficiente (recibido: %, total: %)', v_cash_given, v_total_amount USING ERRCODE = '22023';
         END IF;
         v_change_given := v_cash_given - v_total_amount;
@@ -1401,6 +1418,8 @@ BEGIN
         WHERE x->>'product_id' IS NULL
            OR x->>'quantity' IS NULL
            OR x->>'unit_cost' IS NULL
+           OR NOT public.is_finite_numeric((x->>'quantity')::NUMERIC)
+           OR NOT public.is_finite_numeric((x->>'unit_cost')::NUMERIC)
            OR (x->>'quantity')::NUMERIC <= 0
            OR (x->>'unit_cost')::NUMERIC < 0
     ) THEN
@@ -1931,6 +1950,7 @@ GRANT SELECT ON public.product_stats TO authenticated;
 -- ---- Privilegios de funciones ---------------------------------------------
 REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon, authenticated;
 
+GRANT EXECUTE ON FUNCTION public.is_finite_numeric(NUMERIC) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_store_member(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.has_store_role(UUID, TEXT[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.switch_store(UUID) TO authenticated;
