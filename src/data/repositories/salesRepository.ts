@@ -53,7 +53,7 @@ export const salesRepository = {
         throw new Error('Cada partida debe tener productId');
       }
       const qty = Number(item.quantity);
-      if (isNaN(qty) || qty <= 0) {
+      if (!Number.isFinite(qty) || qty <= 0) {
         throw new Error('Cada partida debe tener una cantidad mayor a 0');
       }
       return {

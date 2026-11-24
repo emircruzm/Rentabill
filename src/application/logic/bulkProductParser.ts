@@ -362,7 +362,7 @@ export function parseBulkProducts(
     // 2. Precio de Costo (Obligatorio, >= 0)
     const rawCost = colIndices.costPrice >= 0 && colIndices.costPrice < fields.length ? fields[colIndices.costPrice] : '';
     const costPrice = parseNumber(rawCost, delimiter);
-    if (costPrice === null || isNaN(costPrice)) {
+    if (costPrice === null || !Number.isFinite(costPrice)) {
       errors.push(`Precio de compra inválido: "${rawCost || '(vacío)'}". Debe ser un número.`);
     } else if (costPrice < 0) {
       errors.push('El precio de compra no puede ser negativo.');
@@ -371,7 +371,7 @@ export function parseBulkProducts(
     // 3. Precio de Venta (Obligatorio, >= 0)
     const rawSale = colIndices.salePrice >= 0 && colIndices.salePrice < fields.length ? fields[colIndices.salePrice] : '';
     const salePrice = parseNumber(rawSale, delimiter);
-    if (salePrice === null || isNaN(salePrice)) {
+    if (salePrice === null || !Number.isFinite(salePrice)) {
       errors.push(`Precio de venta inválido: "${rawSale || '(vacío)'}". Debe ser un número.`);
     } else if (salePrice < 0) {
       errors.push('El precio de venta no puede ser negativo.');
@@ -380,7 +380,7 @@ export function parseBulkProducts(
     // 4. Stock (Obligatorio, >= 0, admite decimales hasta 3 posiciones)
     const rawStock = colIndices.stock >= 0 && colIndices.stock < fields.length ? fields[colIndices.stock] : '0';
     let stock = parseNumber(rawStock, delimiter);
-    if (stock === null || isNaN(stock)) {
+    if (stock === null || !Number.isFinite(stock)) {
       // Si la columna está vacía, asumir 0 por defecto si hay precios
       if (!rawStock || !rawStock.trim()) {
         stock = 0;
@@ -517,9 +517,9 @@ export function parseBulkProducts(
         errores: errors,
         datos: {
           name: name || rawName || '(sin nombre)',
-          costPrice: costPrice !== null && !isNaN(costPrice) ? costPrice : 0,
-          salePrice: salePrice !== null && !isNaN(salePrice) ? salePrice : 0,
-          stock: stock !== null && !isNaN(stock) ? stock : 0,
+          costPrice: costPrice !== null && Number.isFinite(costPrice) ? costPrice : 0,
+          salePrice: salePrice !== null && Number.isFinite(salePrice) ? salePrice : 0,
+          stock: stock !== null && Number.isFinite(stock) ? stock : 0,
           unit,
           category: finalCategory,
           categoryId: finalCategoryId,

@@ -102,7 +102,7 @@ export const RestockSimulatorView: React.FC = () => {
 
     // Days to sell calculated from confirmed real history velocity with NaN/Infinity/negative protection
     const rawDays = realVelocityInfo.daysToDeplete(simulatedQuantity);
-    const isValidDays = Number.isFinite(rawDays) && !isNaN(rawDays) && rawDays > 0;
+    const isValidDays = Number.isFinite(rawDays) && rawDays > 0;
     const daysToSell = isValidDays ? Math.max(1, Math.round(rawDays)) : 0;
     const dailyProfitGain = isValidDays ? Number((totalProfit / Math.max(1, daysToSell)).toFixed(2)) : 0;
     const scoreGain = Math.min(15, Math.max(3, Math.round(dailyProfitGain * 1.2)));
