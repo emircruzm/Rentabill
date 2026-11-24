@@ -406,7 +406,7 @@ export function parseBulkProducts(
           finalCategoryId = found.id;
         } else {
           // Decisión: si el usuario especifica una categoría que no existe, marcamos error claro
-          errors.push(`La categoría "${catTrimmed}" no existe en la tienda. Déjala vacía para usar "General" o créala primero.`);
+          errors.push(`La categoría "${catTrimmed}" no existe en la tienda. Déjala vacía para usar "General".`);
           finalCategory = catTrimmed;
         }
       } else {
