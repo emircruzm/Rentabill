@@ -139,7 +139,7 @@ export const RestockSimulatorView: React.FC = () => {
   const [newSupplierName, setNewSupplierName] = useState('');
   const [newSupplierCondition, setNewSupplierCondition] = useState<'contado' | 'credito'>('credito');
   const [newSupplierDays, setNewSupplierDays] = useState(30);
-  const [newSupplierCategory, setNewSupplierCategory] = useState('');
+  const [newSupplierCategory, setNewSupplierCategory] = useState('General');
   const [newSupplierPhone, setNewSupplierPhone] = useState('');
 
   const handleSaveSupplier = (e: React.FormEvent) => {
@@ -156,14 +156,14 @@ export const RestockSimulatorView: React.FC = () => {
       name: newSupplierName.trim(),
       paymentCondition: newSupplierCondition,
       creditDays: newSupplierCondition === 'credito' ? newSupplierDays : 0,
-      category: newSupplierCategory.trim() || 'Abarrotes generales',
+      category: newSupplierCategory.trim() || 'General',
       contactPhone: cleanedPhone || undefined,
     });
 
     setShowAddSupplierModal(false);
     setNewSupplierName('');
     setNewSupplierDays(30);
-    setNewSupplierCategory('');
+    setNewSupplierCategory('General');
     setNewSupplierPhone('');
   };
 
@@ -997,13 +997,21 @@ export const RestockSimulatorView: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700">Categoría (opcional)</label>
-                  <input
-                    type="text"
-                    value={newSupplierCategory}
-                    onChange={e => setNewSupplierCategory(e.target.value)}
-                    placeholder="Bebidas, Lácteos..."
-                    className="w-full p-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
-                  />
+                    <select
+                      value={newSupplierCategory}
+                      onChange={e => setNewSupplierCategory(e.target.value)}
+                      className="w-full p-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                    >
+                      <option value="Abarrotes">Abarrotes</option>
+                      <option value="Bebidas">Bebidas</option>
+                      <option value="Lácteos">Lácteos</option>
+                      <option value="Snacks">Snacks</option>
+                      <option value="Higiene">Higiene</option>
+                      <option value="Limpieza">Limpieza</option>
+                      <option value="Ferretería">Ferretería</option>
+                      <option value="Farmacia">Farmacia</option>
+                      <option value="General">General</option>
+                    </select>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-slate-700">Celular (opcional)</label>
