@@ -36,7 +36,7 @@ import {
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
 import { perfStart, perfEnd, perfCount, perfReport } from '@shared/utils/perf';
-import { parseRecoveryHash, RecoveryLinkResult, isPasswordValid, PASSWORD_POLICY_MESSAGE } from '@shared/index';
+import { parseRecoveryHash, RecoveryLinkResult, isPasswordValid, PASSWORD_POLICY_MESSAGE, escapeLikePattern, pickExactIgnoreCase } from '@shared/index';
 import { applyRecoverySessionUseCase, updatePasswordUseCase, changePasswordUseCase } from '../use-cases/index';
 import { supabase } from '@data/supabase/client';
 import { formatAuthError } from '@data/supabase/errorMapper';
@@ -1018,14 +1018,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const userEmail = profile?.email || sessionUser.email;
         if (userEmail) {
           try {
-            const { data: incInv } = await supabase
+            const escapedEmail = escapeLikePattern(userEmail.trim());
+            const { data: rows } = await supabase
               .from('store_invitations')
               .select('id, token, store_id, email, role, status, created_at, stores(name)')
-              .ilike('email', userEmail)
+              .ilike('email', escapedEmail)
               .eq('status', 'PENDIENTE')
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
+              .order('created_at', { ascending: false });
+
+            const incInv = pickExactIgnoreCase(rows, r => r.email, userEmail);
 
             if (incInv) {
               const storeObj: any = incInv.stores;
@@ -1183,14 +1184,15 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!emailToSearch || !emailToSearch.includes('@')) return;
 
     try {
-      const { data: incInv, error } = await supabase
+      const escapedEmail = escapeLikePattern(emailToSearch.trim());
+      const { data: rows, error } = await supabase
         .from('store_invitations')
         .select('id, token, store_id, email, role, status, created_at, stores(name)')
-        .ilike('email', emailToSearch)
+        .ilike('email', escapedEmail)
         .eq('status', 'PENDIENTE')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .order('created_at', { ascending: false });
+
+      const incInv = !error ? pickExactIgnoreCase(rows, r => r.email, emailToSearch) : null;
 
       if (!error && incInv) {
         const storeObj: any = incInv.stores;

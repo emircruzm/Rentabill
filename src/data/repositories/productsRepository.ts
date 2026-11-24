@@ -3,6 +3,7 @@ import { Product } from '@shared/types/index';
 import { productMapper } from '@data/mappers/productMapper';
 import { perfCount } from '@shared/utils/perf';
 import { fetchAllPages, sortRowsByCreatedAtDesc } from '@shared/utils/pagination';
+import { escapeLikePattern, pickExactIgnoreCase } from '@shared/utils/likeEscape';
 
 export const BULK_CHUNK_SIZE = 100;
 
@@ -117,13 +118,13 @@ export const productsRepository = {
 
   async ensureCategory(storeId: string, categoryName: string): Promise<string> {
     const trimmed = categoryName.trim() || 'General';
-    const { data: existing } = await supabase
+    const { data: rows } = await supabase
       .from('categories')
-      .select('id')
+      .select('id, name')
       .eq('store_id', storeId)
-      .ilike('name', trimmed)
-      .maybeSingle();
+      .ilike('name', escapeLikePattern(trimmed));
 
+    const existing = pickExactIgnoreCase(rows, r => r.name, trimmed);
     if (existing?.id) return existing.id;
 
     const { data: created, error } = await supabase

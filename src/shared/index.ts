@@ -7,3 +7,4 @@ export * from './utils/pagination';
 export * from './utils/recoveryLink';
 export * from './utils/passwordPolicy';
 export * from './utils/passwordChange';
+export * from './utils/likeEscape';
