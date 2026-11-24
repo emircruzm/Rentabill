@@ -16,7 +16,7 @@ export const suppliersRepository = {
       paymentCondition: s.payment_condition,
       creditDays: Number(s.credit_days || 0),
       contactPhone: s.contact_phone,
-      category: s.category,
+      category: s.rubro,
     }));
   },
 
@@ -29,7 +29,7 @@ export const suppliersRepository = {
         payment_condition: supplier.paymentCondition,
         credit_days: supplier.paymentCondition === 'credito' ? supplier.creditDays : 0,
         contact_phone: supplier.contactPhone || null,
-        category: supplier.category || 'General',
+        rubro: supplier.category || 'General',
       })
       .select('id')
       .single();
