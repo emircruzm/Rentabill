@@ -36,6 +36,7 @@ import {
 } from '@application/logic/index';
 import { formatDatePeru, formatCurrency } from '@shared/formatters/index';
 import { perfStart, perfEnd, perfCount, perfReport } from '@shared/utils/perf';
+import { neutralizeCsvFormula } from '@shared/utils/csvSafe';
 import { parseRecoveryHash, RecoveryLinkResult, isPasswordValid, PASSWORD_POLICY_MESSAGE, escapeLikePattern, pickExactIgnoreCase } from '@shared/index';
 import { applyRecoverySessionUseCase, updatePasswordUseCase, changePasswordUseCase } from '../use-cases/index';
 import { supabase } from '@data/supabase/client';
@@ -3219,9 +3220,9 @@ export const InventoryProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const margin = p.salePrice - p.costPrice;
       const marginPct = p.costPrice > 0 ? ((margin / p.costPrice) * 100).toFixed(1) : '0.0';
       return [
-        `"${(p.name || '').replace(/"/g, '""')}"`,
-        `"${(p.barcode || '').replace(/"/g, '""')}"`,
-        `"${(p.categoryName || p.category || 'General').replace(/"/g, '""')}"`,
+        `"${neutralizeCsvFormula(p.name).replace(/"/g, '""')}"`,
+        `"${neutralizeCsvFormula(p.barcode).replace(/"/g, '""')}"`,
+        `"${neutralizeCsvFormula(p.categoryName || p.category || 'General').replace(/"/g, '""')}"`,
         p.costPrice.toFixed(2),
         p.salePrice.toFixed(2),
         margin.toFixed(2),
